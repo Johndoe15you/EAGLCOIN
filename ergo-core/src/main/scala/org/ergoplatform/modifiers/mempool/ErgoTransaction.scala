@@ -8,7 +8,7 @@ import sigma.data.SigmaConstants.{MaxBoxSize, MaxPropositionBytes}
 import org.ergoplatform.http.api.ApiCodecs
 import org.ergoplatform.mining.emission.EmissionRules
 import org.ergoplatform.modifiers.history.header.Header
-import org.ergoplatform.modifiers.mempool.ErgoTransaction.unresolvedIndices
+import org.ergoplatform.modifiers.mempool.ErgoTransaction.{WeakId, unresolvedIndices}
 import org.ergoplatform.modifiers.transaction.Signable
 import org.ergoplatform.modifiers.{ErgoNodeViewModifier, NetworkObjectTypeId, TransactionTypeId}
 import org.ergoplatform.nodeView.ErgoContext
@@ -29,7 +29,6 @@ import scorex.db.ByteArrayUtils
 import scorex.util.serialization.{Reader, Writer}
 import scorex.util.{ModifierId, ScorexLogging, bytesToId}
 import scorex.utils.Ints
-import sigma.data.SigmaConstants.{MaxBoxSize, MaxPropositionBytes}
 import sigma.exceptions.SoftFieldAccessException
 import sigma.serialization.{ConstantStore, SigmaByteReader, SigmaByteWriter}
 
@@ -84,10 +83,10 @@ case class ErgoTransaction(override val inputs: IndexedSeq[Input],
     * Weak (non-cryptographic) 6 bytes ID. To be used for block transactions propagation only.
     * The idea of using 6-bytes hash is taken from BIP-152 (Bitcoin's compact blocks proposal).
     */
-  lazy val weakId: Array[Byte] = {
+  lazy val weakId: WeakId = {
     val h1 = MurmurHash3.bytesHash(messageToSign)
     val h2 = MurmurHash3.bytesHash(witnessBytes, h1)
-    val result = new Array[Byte](6)
+    val result = new Array[Byte](ErgoTransaction.WeakIdLength) // 6 bytes
     val hb1 = Ints.toByteArray(h1)
     val hb2 = Ints.toByteArray(h2)
     result(0) = hb1(0)
@@ -504,6 +503,12 @@ case class ErgoTransaction(override val inputs: IndexedSeq[Input],
 }
 
 object ErgoTransaction extends ApiCodecs with ScorexLogging with ScorexEncoding {
+
+  /**
+    * 6 bytes long transaction id, not cryptographically strong, used in p2p protocol only
+    */
+  type WeakId = Array[Byte]
+  val WeakIdLength = 6
 
   val modifierTypeId: NetworkObjectTypeId.Value = TransactionTypeId.value
 

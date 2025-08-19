@@ -1258,13 +1258,13 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
 
   // todo: send transactions? or transaction ids? or switch from one option to another depending on message size ?
   def processInputBlockTransactionsRequest(subBlockId: ModifierId, hr: ErgoHistoryReader, remote: ConnectedPeer): Unit = {
-    hr.getInputBlockTransactions(subBlockId) match {
+    hr.getInputBlockTransactionWeakIds(subBlockId) match {
       case Some(transactions) =>
-        val std = InputBlockTransactionsData(subBlockId, transactions)
-        val msg = Message(InputBlockTransactionsMessageSpec, Right(std), None)
+        val std = InputBlockTransactionIdsData(subBlockId, transactions)
+        val msg = Message(InputBlockTransactionIdsMessageSpec, Right(std), None)
         networkControllerRef ! SendToNetwork(msg, SendToPeer(remote))
       case None =>
-        log.warn(s"Transactions not found for requested sub block ${subBlockId}")
+        log.warn(s"Transaction ids not found for requested sub block ${subBlockId}")
     }
   }
 
@@ -1689,7 +1689,7 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
       processInputBlockRequest(ModifierId @@ subBlockId, hr, remote)
     case (_: InputBlockTransactionsRequestMessageSpec.type, subBlockId: String, remote) =>
       processInputBlockTransactionsRequest(ModifierId @@ subBlockId, hr, remote)
-    case (_: InputBlockTransactionsMessageSpec.type, transactions: InputBlockTransactionsData, remote) =>
+    case (_: InputBlockTransactionIdsMessageSpec.type, transactions: InputBlockTransactionsData, remote) =>
       processInputBlockTransactions(transactions, hr, remote)
     case (_: OrderingBlockAnnouncementMessageSpec.type, oba: OrderingBlockAnnouncement, remote) =>
       processOrderingBlockAnnouncement(oba, hr, remote)

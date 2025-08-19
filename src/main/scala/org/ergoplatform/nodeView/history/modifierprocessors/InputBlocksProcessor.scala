@@ -509,6 +509,14 @@ trait InputBlocksProcessor extends ScorexLogging {
     }
   }
 
+  def getInputBlockTransactionWeakIds(sbId: ModifierId): Option[Seq[ErgoTransaction.WeakId]] = {
+    // todo: cache input block transactions to avoid recalculating it on every p2p request
+    // todo: optimize the code below
+    inputBlockTransactions.get(sbId).map { ids =>
+      ids.map(transactionsCache.getIfPresent).map(_.weakId)
+    }
+  }
+
   /**
     * @param id ordering block (header) id
     * @return tips (leaf input blocks) for the ordering block with identifier `id`
