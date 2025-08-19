@@ -2,6 +2,7 @@ package org.ergoplatform.subblocks
 
 import org.ergoplatform.mining.{AutolykosPowScheme, InputBlockFields}
 import org.ergoplatform.modifiers.history.header.{Header, HeaderSerializer}
+import org.ergoplatform.modifiers.mempool.ErgoTransaction
 import org.ergoplatform.serialization.ErgoSerializer
 import org.ergoplatform.settings.Constants
 import scorex.crypto.authds.merkle.BatchMerkleProof
@@ -10,6 +11,7 @@ import scorex.crypto.hash.{Blake2b256, CryptographicHash, Digest32}
 import scorex.util.Extensions.IntOps
 import scorex.util.ModifierId
 import scorex.util.serialization.{Reader, Writer}
+import sigma.util.Extensions.LongOps
 
 /**
   * Sub-block message, sent by the node to peers when a sub-block is generated
@@ -17,10 +19,12 @@ import scorex.util.serialization.{Reader, Writer}
   * @param version - message version (to allow injection of new fields)
   * @param header - subblock header
   * @param inputBlockFields - input block related fields in extension section along with Merkle proof of their inclusion
+  * @param transactionWeakIds - optionally, weak transaction ids if they are known during instance construction
   */
 case class InputBlockInfo(version: Byte,
                           header: Header,
-                          inputBlockFields: InputBlockFields) {
+                          inputBlockFields: InputBlockFields,
+                          transactionWeakIds: Option[Seq[ErgoTransaction.WeakId]]) {
 
   lazy val id: ModifierId = header.id
 
@@ -55,6 +59,10 @@ object InputBlockInfo {
       val proof = bmp.serialize(sbi.merkleProof)
       w.putUShort(proof.length.toShort)
       w.putBytes(proof)
+      w.putOption(sbi.transactionWeakIds){case (w,ids) =>
+        w.putUInt(ids.length)
+        ids.foreach(w.putBytes)
+      }
     }
 
     override def parse(r: Reader): InputBlockInfo = {
@@ -67,9 +75,14 @@ object InputBlockInfo {
         val merkleProofSize = r.getUShort().toShortExact
         val merkleProofBytes = r.getBytes(merkleProofSize)
         val merkleProof = bmp.deserialize(merkleProofBytes).get // parse Merkle proof
-        new InputBlockInfo(version, subBlock, new InputBlockFields(prevSubBlockId, transactionsDigest, prevTransactionsDigest, merkleProof))
+        val weakTxIds = r.getOption({
+          val cnt = r.getUInt().toIntExact
+          (1 to cnt).map(_ => r.getBytes(ErgoTransaction.WeakIdLength))
+        })
+        val fields = new InputBlockFields(prevSubBlockId, transactionsDigest, prevTransactionsDigest, merkleProof)
+        new InputBlockInfo(version, subBlock, fields, weakTxIds)
       } else {
-        // todo: consider proper versioning, eg adding unparsed bytes like done in Header
+        // todo: consider proper versioning, eg by adding unparsed bytes like done in Header
         throw new Exception("Unsupported sub-block message version")
       }
     }

@@ -70,7 +70,7 @@ class InputBlockProcessorSpecification extends ErgoCorePropertyTest with ErgoCom
     h.bestFullBlockOpt.get.id shouldBe c1.last.id
     
     val c2 = genChain(2, h, stateOpt = Some(us)).tail
-    val ib = InputBlockInfo(1, c2(0).header, InputBlockFields.empty)
+    val ib = InputBlockInfo(1, c2(0).header, InputBlockFields.empty, None)
     val r = h.applyInputBlock(ib)
     r shouldBe None
 
@@ -92,7 +92,7 @@ class InputBlockProcessorSpecification extends ErgoCorePropertyTest with ErgoCom
     c2.head.header.parentId shouldBe h.bestHeaderOpt.get.id
     h.bestFullBlockOpt.get.id shouldBe c1.last.id
 
-    val ib1 = InputBlockInfo(1, c2(0).header, InputBlockFields.empty)
+    val ib1 = InputBlockInfo(1, c2(0).header, InputBlockFields.empty, None)
     val r1 = h.applyInputBlock(ib1)
     r1 shouldBe None
     h.getInputBlock(ib1.id) shouldBe Some(ib1)
@@ -104,7 +104,7 @@ class InputBlockProcessorSpecification extends ErgoCorePropertyTest with ErgoCom
     c3.head.header.parentId shouldBe h.bestHeaderOpt.get.id
     h.bestFullBlockOpt.get.id shouldBe c1.last.id
     
-    val ib2 = InputBlockInfo(1, c3(0).header, parentOnly(idToBytes(ib1.id)))
+    val ib2 = InputBlockInfo(1, c3(0).header, parentOnly(idToBytes(ib1.id)), None)
     val r = h.applyInputBlock(ib2)
     r shouldBe None
     h.getOrderingBlockTips(h.bestHeaderOpt.get.id).get should contain(ib2.id)
@@ -135,9 +135,9 @@ class InputBlockProcessorSpecification extends ErgoCorePropertyTest with ErgoCom
     h.bestFullBlockOpt.get.id shouldBe c1.last.id
 
     // Generate parent and child input blocks
-    val parentIb = InputBlockInfo(1, c2(0).header, InputBlockFields.empty)
+    val parentIb = InputBlockInfo(1, c2(0).header, InputBlockFields.empty, None)
     val c3 = genChain(2, h, stateOpt = Some(us)).tail
-    val childIb = InputBlockInfo(1, c3(0).header, parentOnly(idToBytes(parentIb.id)))
+    val childIb = InputBlockInfo(1, c3(0).header, parentOnly(idToBytes(parentIb.id)), None)
 
     // Apply child first - should return parent id as needed
     val r1 = h.applyInputBlock(childIb)
@@ -180,7 +180,7 @@ class InputBlockProcessorSpecification extends ErgoCorePropertyTest with ErgoCom
     c2.head.header.parentId shouldBe h.bestHeaderOpt.get.id
     h.bestFullBlockOpt.get.id shouldBe c1.last.id
 
-    val ib1 = InputBlockInfo(1, c2(0).header, InputBlockFields.empty)
+    val ib1 = InputBlockInfo(1, c2(0).header, InputBlockFields.empty, None)
     val r1 = h.applyInputBlock(ib1)
     r1 shouldBe None
     h.getInputBlock(ib1.id) shouldBe Some(ib1)
@@ -198,8 +198,8 @@ class InputBlockProcessorSpecification extends ErgoCorePropertyTest with ErgoCom
     h.bestFullBlockOpt.get.id shouldBe c1.last.id
     h.getOrderingBlockTipHeight(h.bestHeaderOpt.get.id).get shouldBe 1
 
-    val ib2 = InputBlockInfo(1, c3(0).header, InputBlockFields.empty)
-    val ib3 = InputBlockInfo(1, c4(0).header, parentOnly(idToBytes(ib2.id)))
+    val ib2 = InputBlockInfo(1, c3(0).header, InputBlockFields.empty, None)
+    val ib3 = InputBlockInfo(1, c4(0).header, parentOnly(idToBytes(ib2.id)), None)
     h.applyInputBlock(ib2)
     val r = h.applyInputBlock(ib3)
     r shouldBe None
@@ -234,7 +234,7 @@ class InputBlockProcessorSpecification extends ErgoCorePropertyTest with ErgoCom
     c3.head.header.parentId shouldBe h.bestHeaderOpt.get.id
     h.bestFullBlockOpt.get.id shouldBe c1.last.id
 
-    val ib1 = InputBlockInfo(1, c2(0).header, InputBlockFields.empty)
+    val ib1 = InputBlockInfo(1, c2(0).header, InputBlockFields.empty, None)
     val r1 = h.applyInputBlock(ib1)
     r1 shouldBe None
     h.getInputBlock(ib1.id) shouldBe Some(ib1)
@@ -245,7 +245,7 @@ class InputBlockProcessorSpecification extends ErgoCorePropertyTest with ErgoCom
     h.applyInputBlockTransactions(ib1.id, Seq.empty, us) shouldBe Seq(ib1.id)
 
 
-    val ib2 = InputBlockInfo(1, c3(0).header, parentOnly(idToBytes(ib1.id)))
+    val ib2 = InputBlockInfo(1, c3(0).header, parentOnly(idToBytes(ib1.id)), None)
     val r2 = h.applyInputBlock(ib2)
     r2 shouldBe None
     h.applyInputBlockTransactions(ib2.id, Seq.empty, us) shouldBe Seq(ib2.id)
@@ -259,7 +259,7 @@ class InputBlockProcessorSpecification extends ErgoCorePropertyTest with ErgoCom
     c5.head.header.parentId shouldBe h.bestHeaderOpt.get.id
     h.bestFullBlockOpt.get.id shouldBe c1.last.id
 
-    val ib3 = InputBlockInfo(1, c4(0).header, parentOnly(idToBytes(ib1.id)))
+    val ib3 = InputBlockInfo(1, c4(0).header, parentOnly(idToBytes(ib1.id)), None)
     val r = h.applyInputBlock(ib3)
     r shouldBe None
     // both tips of depth == 2 are recognized now
@@ -271,7 +271,7 @@ class InputBlockProcessorSpecification extends ErgoCorePropertyTest with ErgoCom
     // todo: test out-of-order application, currently failing but maybe it is ok?
     h.applyInputBlockTransactions(ib3.id, Seq.empty, us) shouldBe Seq()
 
-    val ib4 = InputBlockInfo(1, c5(0).header, parentOnly(idToBytes(ib3.id)))
+    val ib4 = InputBlockInfo(1, c5(0).header, parentOnly(idToBytes(ib3.id)), None)
     val r4 = h.applyInputBlock(ib4)
     r4 shouldBe None
     h.applyInputBlockTransactions(ib4.id, Seq.empty, us) shouldBe Seq(ib3.id, ib4.id)
@@ -307,7 +307,7 @@ class InputBlockProcessorSpecification extends ErgoCorePropertyTest with ErgoCom
     )
 
     val c2 = genChain(2, h, stateOpt = Some(us)).tail
-    val ib = InputBlockInfo(1, c2(0).header.copy(stateRoot = digestAfter(Seq(tx), us)), InputBlockFields.empty)
+    val ib = InputBlockInfo(1, c2(0).header.copy(stateRoot = digestAfter(Seq(tx), us)), InputBlockFields.empty, None)
     val r = h.applyInputBlock(ib)
     r shouldBe None
 
@@ -344,7 +344,7 @@ class InputBlockProcessorSpecification extends ErgoCorePropertyTest with ErgoCom
     )
 
     val c2 = genChain(2, h, stateOpt = Some(us)).tail
-    val ib = InputBlockInfo(1, c2(0).header.copy(stateRoot = digestAfter(Seq(tx), us)), InputBlockFields.empty)
+    val ib = InputBlockInfo(1, c2(0).header.copy(stateRoot = digestAfter(Seq(tx), us)), InputBlockFields.empty, None)
     val r = h.applyInputBlock(ib)
     r shouldBe None
 
@@ -361,7 +361,7 @@ class InputBlockProcessorSpecification extends ErgoCorePropertyTest with ErgoCom
     h.bestFullBlockOpt.isDefined shouldBe false
 
     val c2 = genChain(2, h, stateOpt = Some(us)).tail
-    val ib = InputBlockInfo(1, c2(0).header, InputBlockFields.empty)
+    val ib = InputBlockInfo(1, c2(0).header, InputBlockFields.empty, None)
     val r = h.applyInputBlock(ib)
     r shouldBe None
 
@@ -385,7 +385,7 @@ class InputBlockProcessorSpecification extends ErgoCorePropertyTest with ErgoCom
     val c3 = genChain(1, h, stateOpt = Some(us)).tail
     applyChain(h, c3)
 
-    val ib = InputBlockInfo(1, c2(0).header, InputBlockFields.empty)
+    val ib = InputBlockInfo(1, c2(0).header, InputBlockFields.empty, None)
     val r = h.applyInputBlock(ib)
     r shouldBe None
 
@@ -411,7 +411,7 @@ class InputBlockProcessorSpecification extends ErgoCorePropertyTest with ErgoCom
     applyChain(h, c3)
     h.bestFullBlockOpt.get.id shouldBe c3.last.id
 
-    val ib = InputBlockInfo(1, c4(0).header, InputBlockFields.empty)
+    val ib = InputBlockInfo(1, c4(0).header, InputBlockFields.empty, None)
     val r = h.applyInputBlock(ib)
     r shouldBe None
 
@@ -434,7 +434,7 @@ class InputBlockProcessorSpecification extends ErgoCorePropertyTest with ErgoCom
     c2.head.header.parentId shouldBe h.bestHeaderOpt.get.id
     h.bestFullBlockOpt.get.id shouldBe c1.last.id
 
-    val ib1 = InputBlockInfo(1, c2(0).header, InputBlockFields.empty)
+    val ib1 = InputBlockInfo(1, c2(0).header, InputBlockFields.empty, None)
     val r1 = h.applyInputBlock(ib1)
     r1 shouldBe None
     h.getInputBlock(ib1.id) shouldBe Some(ib1)
@@ -462,7 +462,7 @@ class InputBlockProcessorSpecification extends ErgoCorePropertyTest with ErgoCom
     c2.head.header.parentId shouldBe h.bestHeaderOpt.get.id
     h.bestFullBlockOpt.get.id shouldBe c1.last.id
 
-    val ib1 = InputBlockInfo(1, c2(0).header, InputBlockFields.empty)
+    val ib1 = InputBlockInfo(1, c2(0).header, InputBlockFields.empty, None)
     val r1 = h.applyInputBlock(ib1)
     r1 shouldBe None
     h.getInputBlock(ib1.id) shouldBe Some(ib1)
@@ -492,7 +492,7 @@ class InputBlockProcessorSpecification extends ErgoCorePropertyTest with ErgoCom
     c2.head.header.parentId shouldBe h.bestHeaderOpt.get.id
     h.bestFullBlockOpt.get.id shouldBe c1.last.id
 
-    val ib1 = InputBlockInfo(1, c2(0).header, InputBlockFields.empty)
+    val ib1 = InputBlockInfo(1, c2(0).header, InputBlockFields.empty, None)
     val r1 = h.applyInputBlock(ib1)
     r1 shouldBe None
     h.getInputBlock(ib1.id) shouldBe Some(ib1)
@@ -507,7 +507,7 @@ class InputBlockProcessorSpecification extends ErgoCorePropertyTest with ErgoCom
     c3.head.header.parentId shouldBe h.bestHeaderOpt.get.id
     h.bestFullBlockOpt.get.id shouldBe c1.last.id
 
-    val ib2 = InputBlockInfo(1, c3(0).header, parentOnly(idToBytes(ib1.id)))
+    val ib2 = InputBlockInfo(1, c3(0).header, parentOnly(idToBytes(ib1.id)), None)
     var r = h.applyInputBlock(ib2)
     r shouldBe None
     h.getOrderingBlockTips(h.bestHeaderOpt.get.id).get should contain(ib2.id)
@@ -527,7 +527,7 @@ class InputBlockProcessorSpecification extends ErgoCorePropertyTest with ErgoCom
     c4.head.header.parentId shouldBe h.bestHeaderOpt.get.id
     h.bestFullBlockOpt.get.id shouldBe c1.last.id
 
-    val ib3 = InputBlockInfo(1, c4(0).header, parentOnly(idToBytes(ib2.id)))
+    val ib3 = InputBlockInfo(1, c4(0).header, parentOnly(idToBytes(ib2.id)), None)
     r = h.applyInputBlock(ib3)
     r shouldBe None
     h.getOrderingBlockTips(h.bestHeaderOpt.get.id).get should contain(ib3.id)
@@ -557,7 +557,7 @@ class InputBlockProcessorSpecification extends ErgoCorePropertyTest with ErgoCom
     c2.head.header.parentId shouldBe h.bestHeaderOpt.get.id
     h.bestFullBlockOpt.get.id shouldBe c1.last.id
 
-    val ib1 = InputBlockInfo(1, c2(0).header, InputBlockFields.empty)
+    val ib1 = InputBlockInfo(1, c2(0).header, InputBlockFields.empty, None)
     val r1 = h.applyInputBlock(ib1)
     r1 shouldBe None
     h.getInputBlock(ib1.id) shouldBe Some(ib1)
@@ -572,7 +572,7 @@ class InputBlockProcessorSpecification extends ErgoCorePropertyTest with ErgoCom
     c3.head.header.parentId shouldBe h.bestHeaderOpt.get.id
     h.bestFullBlockOpt.get.id shouldBe c1.last.id
 
-    val ib2 = InputBlockInfo(1, c3(0).header, parentOnly(idToBytes(ib1.id)))
+    val ib2 = InputBlockInfo(1, c3(0).header, parentOnly(idToBytes(ib1.id)), None)
     val r = h.applyInputBlock(ib2)
     r shouldBe None
     h.getOrderingBlockTips(h.bestHeaderOpt.get.id).get should contain(ib2.id)
@@ -604,7 +604,7 @@ class InputBlockProcessorSpecification extends ErgoCorePropertyTest with ErgoCom
     c2.head.header.parentId shouldBe h.bestHeaderOpt.get.id
     h.bestFullBlockOpt.get.id shouldBe c1.last.id
 
-    val ib1 = InputBlockInfo(1, c2(0).header, InputBlockFields.empty)
+    val ib1 = InputBlockInfo(1, c2(0).header, InputBlockFields.empty, None)
     val r1 = h.applyInputBlock(ib1)
     r1 shouldBe None
     h.getInputBlock(ib1.id) shouldBe Some(ib1)
@@ -619,7 +619,7 @@ class InputBlockProcessorSpecification extends ErgoCorePropertyTest with ErgoCom
     c3.head.header.parentId shouldBe h.bestHeaderOpt.get.id
     h.bestFullBlockOpt.get.id shouldBe c1.last.id
 
-    val ib2 = InputBlockInfo(1, c3(0).header, parentOnly(idToBytes(ib1.id)))
+    val ib2 = InputBlockInfo(1, c3(0).header, parentOnly(idToBytes(ib1.id)), None)
     var r = h.applyInputBlock(ib2)
     r shouldBe None
     h.getOrderingBlockTips(h.bestHeaderOpt.get.id).get should contain(ib2.id)
@@ -632,7 +632,7 @@ class InputBlockProcessorSpecification extends ErgoCorePropertyTest with ErgoCom
     c4.head.header.parentId shouldBe h.bestHeaderOpt.get.id
     h.bestFullBlockOpt.get.id shouldBe c1.last.id
 
-    val ib3 = InputBlockInfo(1, c4(0).header, parentOnly(idToBytes(ib2.id)))
+    val ib3 = InputBlockInfo(1, c4(0).header, parentOnly(idToBytes(ib2.id)), None)
     r = h.applyInputBlock(ib3)
     r shouldBe None
     h.getOrderingBlockTips(h.bestHeaderOpt.get.id).get should contain(ib3.id)

@@ -1059,7 +1059,9 @@ object CandidateGenerator extends ScorexLogging {
 
     val ibf = new InputBlockFields(prevInputBlockId, inputBlockTransactionsDigest, prevTransactionsDigest, merkleProof)
 
-    val sbi: InputBlockInfo = InputBlockInfo(InputBlockInfo.initialMessageVersion, header, ibf)
+    val weakIds = txs.map(_.weakId)
+
+    val sbi: InputBlockInfo = InputBlockInfo(InputBlockInfo.initialMessageVersion, header, ibf, Some(weakIds))
     val sbt : InputBlockTransactionsData = InputBlockTransactionsData(sbi.header.id, txs)
 
     (sbi, sbt)
