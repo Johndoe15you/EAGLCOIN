@@ -1225,8 +1225,10 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
 
   // PROCESS LOGIC FOR INPUT- AND ORDERING BLOCKS RELATED DATA
 
+  case class InputBlockDiffData(created: Long, weakTxsIds: Seq[ErgoTransaction.WeakId], txs: Seq[ErgoTransaction])
+
   // todo: clean old records not removed on diff delivery
-  private val localInputBlockChunks = mutable.Map[ModifierId, Seq[ErgoTransaction]]()
+  private val localInputBlockChunks = mutable.Map[ModifierId, InputBlockDiffData]()
 
   private def weakIdsDiff(mp: ErgoMemPoolReader,
                           wIds: Seq[WeakId]): (Seq[WeakId], Seq[ErgoTransaction]) = {
@@ -1271,9 +1273,10 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
             } else {
               // in the first place, ask peer announced input-block for diff
 
-              // todo: store tx indices in the input block
+
               // todo: do removal
-              localInputBlockChunks.put(subBlockId, mempoolTxs)
+              val ibdd = InputBlockDiffData(System.currentTimeMillis(), wIds, mempoolTxs)
+              localInputBlockChunks.put(subBlockId, ibdd)
 
               val req = InputBlockTransactionsRequest(inputBlockInfo.id, diff)
 
@@ -1340,9 +1343,9 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
     } else {
       // in the first place, ask peer announced input-block for diff
 
-      // todo: store tx indices in the input block
       // todo: do removal
-      localInputBlockChunks.put(subBlockId, mempoolTxs)
+      val ibdd = InputBlockDiffData(System.currentTimeMillis(), wIds, mempoolTxs)
+      localInputBlockChunks.put(subBlockId, ibdd)
 
       val req = InputBlockTransactionsRequest(subBlockId, diff)
 
@@ -1369,10 +1372,38 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
   def processInputBlockTransactions(transactionsData: InputBlockTransactionsData,
                                     hr: ErgoHistoryReader,
                                     remote: ConnectedPeer): Unit = {
+
     // todo: check if not spam, ie transaction were requested
-    // todo: augment with mempool txs
-    // todo: mempool txs along should be merged with transactionsData preserving original order! ++ does not work
-    viewHolderRef ! ProcessInputBlockTransactions(transactionsData)
+
+    // we combine input block transactionsgot from a peer with mempool (cached before), and send result for processing
+
+    val subblockId = transactionsData.inputBlockId
+    val localTxsOpt = localInputBlockChunks.get(subblockId)
+
+    val localTxsLength = localTxsOpt.map(_.weakTxsIds.length).getOrElse(0)
+
+    if (localTxsLength == 0) {
+      viewHolderRef ! ProcessInputBlockTransactions(transactionsData)
+    } else {
+      val localTxsData = localTxsOpt.get // get is safe when localTxsLength > 0
+      val weakTxIds = localTxsData.weakTxsIds
+      val totalTxs = weakTxIds.length
+      val resTxs = new Array[ErgoTransaction](totalTxs)
+
+      var allTxs = mutable.Seq[ErgoTransaction]()
+      allTxs ++= localTxsData.txs // mempoool txs
+      allTxs ++= transactionsData.transactions // peer txs
+
+      // todo: replace w. cfor
+      (0 until totalTxs).foreach {i =>
+        val weakId = weakTxIds(i)
+        val tx = allTxs.find(_.weakId.sameElements(weakId)).get // todo: err processing instead of .get
+        resTxs(i) = tx
+      }
+
+      val res = InputBlockTransactionsData(subblockId, resTxs)
+      viewHolderRef ! ProcessInputBlockTransactions(res)
+    }
   }
 
   def processOrderingBlockAnnouncement(oba: OrderingBlockAnnouncement,
