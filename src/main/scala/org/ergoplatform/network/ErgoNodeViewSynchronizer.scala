@@ -7,7 +7,7 @@ import org.ergoplatform.modifiers.mempool.{ErgoTransaction, ErgoTransactionSeria
 import org.ergoplatform.modifiers.{BlockSection, ErgoNodeViewModifier, ManifestTypeId, NetworkObjectTypeId, SnapshotsInfoTypeId, UtxoSnapshotChunkTypeId}
 import org.ergoplatform.nodeView.history.{ErgoHistory, ErgoHistoryReader, ErgoSyncInfo, ErgoSyncInfoMessageSpec, ErgoSyncInfoV1, ErgoSyncInfoV2}
 import org.ergoplatform.nodeView.ErgoNodeViewHolder.BlockAppliedTransactions
-import org.ergoplatform.nodeView.mempool.ErgoMemPool
+import org.ergoplatform.nodeView.mempool.{ErgoMemPool, ErgoMemPoolReader}
 import org.ergoplatform.settings.{Algos, ErgoSettings, NetworkSettings}
 import org.ergoplatform.nodeView.ErgoNodeViewHolder._
 import org.ergoplatform.nodeView.ErgoNodeViewHolder.ReceivableMessages.{ChainIsHealthy, ChainIsStuck, GetNodeViewChanges, IsChainHealthy, ModifiersFromRemote, TransactionFromRemote}
@@ -33,6 +33,7 @@ import org.ergoplatform.consensus.{Equal, Fork, Nonsense, Older, Unknown, Younge
 import org.ergoplatform.modifiers.history.extension.Extension.PrevInputBlockIdKey
 import org.ergoplatform.modifiers.history.{ADProofs, ADProofsSerializer, BlockTransactions, BlockTransactionsSerializer}
 import org.ergoplatform.modifiers.history.extension.{Extension, ExtensionSerializer}
+import org.ergoplatform.modifiers.mempool.ErgoTransaction.WeakId
 import org.ergoplatform.modifiers.transaction.TooHighCostError
 import org.ergoplatform.network.message.inputblocks._
 import org.ergoplatform.serialization.{ErgoSerializer, ManifestSerializer, SubtreeSerializer}
@@ -649,9 +650,9 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
       // processing internal request to download an input block
       val msg = Message(InputBlockRequestMessageSpec, Right(sbId), None)
       networkControllerRef ! SendToNetwork(msg, SendToPeer(remote))
-    case DownloadInputBlockTransactions(sbId, remote) =>
+    case DownloadInputBlockTransactions(req, remote) =>
       // processing internal request to download input block transactions
-      val msg = Message(InputBlockTransactionsRequestMessageSpec, Right(sbId), None)
+      val msg = Message(InputBlockTransactionsRequestMessageSpec, Right(req), None)
       networkControllerRef ! SendToNetwork(msg, SendToPeer(remote))
   }
 
@@ -1224,18 +1225,75 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
 
   // PROCESS LOGIC FOR INPUT- AND ORDERING BLOCKS RELATED DATA
 
-  def processInputBlock(inputBlockInfo: InputBlockInfo, hr: ErgoHistoryReader, remote: ConnectedPeer): Unit = {
+  // todo: clean old records not removed on diff delivery
+  private val localInputBlockChunks = mutable.Map[ModifierId, Seq[ErgoTransaction]]()
+
+  private def weakIdsDiff(mp: ErgoMemPoolReader,
+                          wIds: Seq[WeakId]): (Seq[WeakId], Seq[ErgoTransaction]) = {
+    val mempoolTxs = wIds.flatMap(mp.transactionByWeakId)
+    val diffIds = if (mempoolTxs.length == wIds.length) {
+      Seq.empty[WeakId]
+    } else {
+      val mempoolIds = mempoolTxs.map(_.weakId)
+      wIds.filter(wId => !mempoolIds.exists(mId => mId.sameElements(wId)))
+    }
+    diffIds -> mempoolTxs
+  }
+
+  def processInputBlock(inputBlockInfo: InputBlockInfo,
+                        hr: ErgoHistoryReader,
+                        mp: ErgoMemPoolReader,
+                        remote: ConnectedPeer): Unit = {
+
     val subBlockHeader = inputBlockInfo.header
+    val subBlockId = inputBlockInfo.id
+
     // apply sub-block if it is on current height // todo: relax the rule to process input-blocks for last 1-2 ordering blocks as well ?
     if (subBlockHeader.height == hr.fullBlockHeight + 1) {
       val powScheme = settings.chainSettings.powScheme
       if (inputBlockInfo.valid(powScheme)) { // check PoW / Merkle proofs before processing todo: check diff
         val prevSbIdOpt = inputBlockInfo.prevInputBlockId.map(bytesToId) // link to previous sub-block
-        log.info(s"Processing valid sub-block ${subBlockHeader.id} with parent sub-block $prevSbIdOpt and parent block ${subBlockHeader.parentId}")
-        // write sub-block to db, ask for transactions in it
-        viewHolderRef ! ProcessInputBlock(inputBlockInfo, remote)
-        val msg = Message(InputBlockTransactionsRequestMessageSpec, Right(inputBlockInfo.header.id), None)
-        networkControllerRef ! SendToNetwork(msg, SendToPeer(remote))
+        val weakTxIdsOpt = inputBlockInfo.weakTxIds
+
+        log.info(s"Processing valid sub-block $subBlockId with parent sub-block $prevSbIdOpt and parent block ${subBlockHeader.parentId}, weak txs announced: ${weakTxIdsOpt.map(_.length)}")
+
+        weakTxIdsOpt match {
+          case Some(wIds) =>
+            // tx ids announced, calc diff with the mempool immediately
+            val (diff, mempoolTxs) = weakIdsDiff(mp, wIds)
+            if (diff.isEmpty) {
+              // all the txs found or wIds empty, process immediately
+
+              // write sub-block and transactions to db
+              viewHolderRef ! ProcessInputBlock(inputBlockInfo, remote)
+              val transactionsData = InputBlockTransactionsData(inputBlockInfo.id, mempoolTxs)
+              viewHolderRef ! ProcessInputBlockTransactions(transactionsData)
+            } else {
+              // in the first place, ask peer announced input-block for diff
+
+              // todo: store tx indices in the input block
+              // todo: do removal
+              localInputBlockChunks.put(subBlockId, mempoolTxs)
+
+              val req = InputBlockTransactionsRequest(inputBlockInfo.id, diff)
+
+              val msg = Message(InputBlockTransactionsRequestMessageSpec, Right(req), None)
+              networkControllerRef ! SendToNetwork(msg, SendToPeer(remote))
+
+              // write sub-block and transactions to db
+              viewHolderRef ! ProcessInputBlock(inputBlockInfo, remote)
+            }
+
+          case None =>
+            // input block coming with no transaction ids announced
+
+            // write sub-block to db
+            viewHolderRef ! ProcessInputBlock(inputBlockInfo, remote)
+
+            // ask for transaction ids
+            val msg = Message(InputBlockTransactionIdsRequestMessageSpec, Right(inputBlockInfo.header.id), None)
+            networkControllerRef ! SendToNetwork(msg, SendToPeer(remote))
+        }
       } else {
         log.warn(s"Sub-block ${subBlockHeader.id} is invalid")
         penalizeMisbehavingPeer(remote)
@@ -1256,15 +1314,55 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
     }
   }
 
-  // todo: send transactions? or transaction ids? or switch from one option to another depending on message size ?
-  def processInputBlockTransactionsRequest(subBlockId: ModifierId, hr: ErgoHistoryReader, remote: ConnectedPeer): Unit = {
-    hr.getInputBlockTransactionWeakIds(subBlockId) match {
-      case Some(transactions) =>
-        val std = InputBlockTransactionIdsData(subBlockId, transactions)
-        val msg = Message(InputBlockTransactionIdsMessageSpec, Right(std), None)
+  def processInputBlockTransactionIdsRequest(subblockId: ModifierId, hr: ErgoHistoryReader, remote: ConnectedPeer): Unit = {
+    hr.getInputBlockTransactionWeakIds(subblockId) match {
+      case Some(ids) =>
+        val data = InputBlockTransactionIdsData(subblockId, ids)
+        val msg = Message(InputBlockTransactionIdsMessageSpec, Right(data), None)
         networkControllerRef ! SendToNetwork(msg, SendToPeer(remote))
       case None =>
-        log.warn(s"Transaction ids not found for requested sub block ${subBlockId}")
+        log.warn(s"Requested by $remote weak ids not found for: $subblockId")
+    }
+  }
+
+  def processInputBlockTransactionIds(txIds: InputBlockTransactionIdsData, mp: ErgoMemPoolReader, remote: ConnectedPeer): Unit = {
+    val subBlockId = txIds.inputBlockId
+    val wIds = txIds.transactionIds
+    val (diff, mempoolTxs) = weakIdsDiff(mp, wIds)
+
+    // todo: the code below is similar to processInputBlock, aside of sending inputBlock to ENVH, fix boilerplate
+    if (diff.isEmpty) {
+      // all the txs found or wIds empty, process immediately
+
+      // write sub-block and transactions to db
+      val transactionsData = InputBlockTransactionsData(subBlockId, mempoolTxs)
+      viewHolderRef ! ProcessInputBlockTransactions(transactionsData)
+    } else {
+      // in the first place, ask peer announced input-block for diff
+
+      // todo: store tx indices in the input block
+      // todo: do removal
+      localInputBlockChunks.put(subBlockId, mempoolTxs)
+
+      val req = InputBlockTransactionsRequest(subBlockId, diff)
+
+      val msg = Message(InputBlockTransactionsRequestMessageSpec, Right(req), None)
+      networkControllerRef ! SendToNetwork(msg, SendToPeer(remote))
+    }
+  }
+
+
+  // todo: send transactions? or transaction ids? or switch from one option to another depending on message size ?
+  def processInputBlockTransactionsRequest(req: InputBlockTransactionsRequest, hr: ErgoHistoryReader, remote: ConnectedPeer): Unit = {
+    val subBlockId = req.inputBlockId
+    // other peer is sending us weak ids of transactions it doesnt have, we serve it with them
+    hr.getInputBlockTransactions(subBlockId, req.txIds) match {
+      case Some(transactions) =>
+        val std = InputBlockTransactionsData(subBlockId, transactions)
+        val msg = Message(InputBlockTransactionsMessageSpec, Right(std), None)
+        networkControllerRef ! SendToNetwork(msg, SendToPeer(remote))
+      case None =>
+        log.warn(s"Transactions not found for requested sub block $subBlockId")
     }
   }
 
@@ -1272,6 +1370,8 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
                                     hr: ErgoHistoryReader,
                                     remote: ConnectedPeer): Unit = {
     // todo: check if not spam, ie transaction were requested
+    // todo: augment with mempool txs
+    // todo: mempool txs along should be merged with transactionsData preserving original order! ++ does not work
     viewHolderRef ! ProcessInputBlockTransactions(transactionsData)
   }
 
@@ -1623,8 +1723,17 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
     // todo: broadcast only locally generated new best input block?
     case NewBestInputBlock(Some(id)) =>
       historyReader.getInputBlock(id) match {
-        case Some(ibi) =>
+        case Some(preIbi) =>
           log.debug(s"Sending input block $id out")
+
+          // we propagate input block with transactions immediately if it has no more than 3 transactions
+          // todo: check number of transactions on retrieval
+          // todo: improve high/low bandwidth rules
+          val ibi = if(preIbi.weakTxIds.size <= 3) {
+            preIbi
+          } else {
+            preIbi.copy(weakTxIds = None)
+          }
           val peers = syncTracker.statuses.filter { s =>
             val status = s._2.status
             status == Equal || status == Fork
@@ -1684,12 +1793,16 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
       processNipopowProof(proofBytes, hr, remote)
     // Sub-blocks related messages
     case (_: InputBlockMessageSpec.type, subBlockInfo: InputBlockInfo, remote) =>
-      processInputBlock(subBlockInfo, hr, remote)
+      processInputBlock(subBlockInfo, hr, mp, remote)
     case (_: InputBlockRequestMessageSpec.type, subBlockId: String, remote) =>
       processInputBlockRequest(ModifierId @@ subBlockId, hr, remote)
-    case (_: InputBlockTransactionsRequestMessageSpec.type, subBlockId: String, remote) =>
-      processInputBlockTransactionsRequest(ModifierId @@ subBlockId, hr, remote)
-    case (_: InputBlockTransactionIdsMessageSpec.type, transactions: InputBlockTransactionsData, remote) =>
+    case (_: InputBlockTransactionIdsRequestMessageSpec.type, subBlockId: String, remote) =>
+      processInputBlockTransactionIdsRequest(ModifierId @@ subBlockId, hr, remote)
+    case (_: InputBlockTransactionIdsMessageSpec.type, transactionIds: InputBlockTransactionIdsData, remote) =>
+      processInputBlockTransactionIds(transactionIds, mp, remote)
+    case (_: InputBlockTransactionsRequestMessageSpec.type, req: InputBlockTransactionsRequest, remote) =>
+      processInputBlockTransactionsRequest(req, hr, remote)
+    case (_: InputBlockTransactionsMessageSpec.type, transactions: InputBlockTransactionsData, remote) =>
       processInputBlockTransactions(transactions, hr, remote)
     case (_: OrderingBlockAnnouncementMessageSpec.type, oba: OrderingBlockAnnouncement, remote) =>
       processOrderingBlockAnnouncement(oba, hr, remote)

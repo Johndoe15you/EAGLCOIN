@@ -19,12 +19,12 @@ import sigma.util.Extensions.LongOps
   * @param version - message version (to allow injection of new fields)
   * @param header - subblock header
   * @param inputBlockFields - input block related fields in extension section along with Merkle proof of their inclusion
-  * @param transactionWeakIds - optionally, weak transaction ids if they are known during instance construction
+  * @param weakTxIds - optionally, weak transaction ids if they are known during instance construction
   */
 case class InputBlockInfo(version: Byte,
                           header: Header,
                           inputBlockFields: InputBlockFields,
-                          transactionWeakIds: Option[Seq[ErgoTransaction.WeakId]]) {
+                          weakTxIds: Option[Seq[ErgoTransaction.WeakId]]) {
 
   lazy val id: ModifierId = header.id
 
@@ -59,7 +59,7 @@ object InputBlockInfo {
       val proof = bmp.serialize(sbi.merkleProof)
       w.putUShort(proof.length.toShort)
       w.putBytes(proof)
-      w.putOption(sbi.transactionWeakIds){case (w,ids) =>
+      w.putOption(sbi.weakTxIds){case (w,ids) =>
         w.putUInt(ids.length)
         ids.foreach(w.putBytes)
       }

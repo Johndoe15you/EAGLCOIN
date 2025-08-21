@@ -16,7 +16,7 @@ import org.ergoplatform.wallet.utils.FileUtils
 import org.ergoplatform.settings.{Algos, Constants, ErgoSettings, NetworkType, ScorexSettings}
 import org.ergoplatform.core._
 import org.ergoplatform.network.ErgoNodeViewSynchronizerMessages._
-import org.ergoplatform.nodeView.ErgoNodeViewHolder.{BlockAppliedTransactions, CurrentView, DownloadRequest, DownloadInputBlock, DownloadInputBlockTransactions}
+import org.ergoplatform.nodeView.ErgoNodeViewHolder.{BlockAppliedTransactions, CurrentView, DownloadInputBlock, DownloadRequest}
 import org.ergoplatform.nodeView.ErgoNodeViewHolder.ReceivableMessages._
 import org.ergoplatform.modifiers.history.{ADProofs, BlockTransactions, HistoryModifierSerializer}
 import org.ergoplatform.validation.RecoverableModifierError
@@ -25,7 +25,7 @@ import spire.syntax.all.cfor
 
 import java.io.File
 import org.ergoplatform.modifiers.history.extension.Extension
-import org.ergoplatform.network.message.inputblocks.OrderingBlockAnnouncement
+import org.ergoplatform.network.message.inputblocks.{InputBlockTransactionsRequest, OrderingBlockAnnouncement}
 import org.ergoplatform.subblocks.InputBlockInfo
 import scorex.core.network.ConnectedPeer
 
@@ -328,8 +328,8 @@ abstract class ErgoNodeViewHolder[State <: ErgoState[State]](settings: ErgoSetti
           log.debug(s"Got input block ${inputBlockInfo.id} transactions before the input block itself")
           processInputBlockTransactions(inputBlockInfo.id, txs)
         case None =>
-          log.debug(s"Downloading transactions of input-block ${inputBlockInfo.id}")
-          context.system.eventStream.publish(DownloadInputBlockTransactions(inputBlockInfo.id, remote))
+          // we dont do anything here, p2p layer (ErgoNodeViewSynchronizer) will download transactions
+          // and call ProcessInputBlockTransactions
       }
 
     case ProcessInputBlockTransactions(std) =>
@@ -885,7 +885,7 @@ object ErgoNodeViewHolder {
   case class DownloadRequest(modifiersToFetch: Map[NetworkObjectTypeId.Value, Seq[ModifierId]]) extends NodeViewHolderEvent
 
   case class DownloadInputBlock(subblockId: ModifierId, remote: ConnectedPeer)
-  case class DownloadInputBlockTransactions(subblockId: ModifierId, remote: ConnectedPeer)
+  case class DownloadInputBlockTransactions(req: InputBlockTransactionsRequest, remote: ConnectedPeer)
 
   case class CurrentView[State](history: ErgoHistory, state: State, vault: ErgoWallet, pool: ErgoMemPool)
 

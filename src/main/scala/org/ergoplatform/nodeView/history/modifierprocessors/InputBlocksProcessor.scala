@@ -509,6 +509,27 @@ trait InputBlocksProcessor extends ScorexLogging {
     }
   }
 
+  /**
+    * @param sbId
+    * @param toFilter - weak ids of transactions which SHOULD BE in resul
+    * @return
+    */
+  def getInputBlockTransactions(sbId: ModifierId,
+                                toFilter: Seq[ErgoTransaction.WeakId]): Option[Seq[ErgoTransaction]] = {
+    // todo: cache input block transactions to avoid recalculating it on every p2p request
+    // todo: optimize the code below
+    inputBlockTransactions.get(sbId).map { ids =>
+      ids.flatMap { id =>
+        val tx = transactionsCache.getIfPresent(id)
+        if (toFilter.exists(fId => tx.weakId.sameElements(fId))) {
+          Some(tx)
+        } else {
+          None
+        }
+      }
+    }
+  }
+
   def getInputBlockTransactionWeakIds(sbId: ModifierId): Option[Seq[ErgoTransaction.WeakId]] = {
     // todo: cache input block transactions to avoid recalculating it on every p2p request
     // todo: optimize the code below

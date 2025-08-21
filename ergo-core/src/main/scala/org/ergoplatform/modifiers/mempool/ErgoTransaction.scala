@@ -84,18 +84,8 @@ case class ErgoTransaction(override val inputs: IndexedSeq[Input],
     * The idea of using 6-bytes hash is taken from BIP-152 (Bitcoin's compact blocks proposal).
     */
   lazy val weakId: WeakId = {
-    val h1 = MurmurHash3.bytesHash(messageToSign)
-    val h2 = MurmurHash3.bytesHash(witnessBytes, h1)
-    val result = new Array[Byte](ErgoTransaction.WeakIdLength) // 6 bytes
-    val hb1 = Ints.toByteArray(h1)
-    val hb2 = Ints.toByteArray(h2)
-    result(0) = hb1(0)
-    result(1) = hb1(1)
-    result(2) = (hb1(2) ^ hb2(0)).toByte
-    result(3) = (hb1(3) ^ hb2(1)).toByte
-    result(4) = hb2(2)
-    result(5) = hb2(3)
-    result
+    val half = ErgoTransaction.WeakIdLength / 2
+    serializedId.take(half) ++ witnessSerializedId.take(half)
   }
 
 

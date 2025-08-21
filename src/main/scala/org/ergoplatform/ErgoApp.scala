@@ -20,7 +20,7 @@ import scorex.core.network.NetworkController.ReceivableMessages.ShutdownNetwork
 import scorex.core.network._
 import org.ergoplatform.network.message.MessageConstants.MessageCode
 import org.ergoplatform.network.message._
-import org.ergoplatform.network.message.inputblocks.{InputBlockMessageSpec, InputBlockRequestMessageSpec, InputBlockTransactionIdsMessageSpec, InputBlockTransactionsRequestMessageSpec, OrderingBlockAnnouncementMessageSpec}
+import org.ergoplatform.network.message.inputblocks.{InputBlockMessageSpec, InputBlockRequestMessageSpec, InputBlockTransactionIdsMessageSpec, InputBlockTransactionIdsRequestMessageSpec, InputBlockTransactionsMessageSpec, InputBlockTransactionsRequestMessageSpec, OrderingBlockAnnouncementMessageSpec}
 import org.ergoplatform.network.peer.PeerManagerRef
 import scorex.util.ScorexLogging
 
@@ -90,6 +90,8 @@ class ErgoApp(args: Args) extends ScorexLogging {
       InputBlockMessageSpec,
       InputBlockRequestMessageSpec,
       InputBlockTransactionIdsMessageSpec,
+      InputBlockTransactionIdsRequestMessageSpec,
+      InputBlockTransactionsMessageSpec,
       InputBlockTransactionsRequestMessageSpec,
       OrderingBlockAnnouncementMessageSpec
     )
@@ -151,6 +153,8 @@ class ErgoApp(args: Args) extends ScorexLogging {
         // input block related messages
         InputBlockMessageSpec.messageCode                    -> ergoNodeViewSynchronizerRef,
         InputBlockRequestMessageSpec.messageCode             -> ergoNodeViewSynchronizerRef,
+        InputBlockTransactionIdsRequestMessageSpec.messageCode -> ergoNodeViewSynchronizerRef,
+        InputBlockTransactionsMessageSpec.messageCode        -> ergoNodeViewSynchronizerRef,
         InputBlockTransactionIdsMessageSpec.messageCode        -> ergoNodeViewSynchronizerRef,
         InputBlockTransactionsRequestMessageSpec.messageCode -> ergoNodeViewSynchronizerRef,
         OrderingBlockAnnouncementMessageSpec.messageCode -> ergoNodeViewSynchronizerRef

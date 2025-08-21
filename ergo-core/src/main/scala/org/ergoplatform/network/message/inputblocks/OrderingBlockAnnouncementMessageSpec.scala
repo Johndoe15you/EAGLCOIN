@@ -15,7 +15,7 @@ object OrderingBlockAnnouncementMessageSpec extends MessageSpecInputBlocks[Order
   /**
     * Code which identifies what message type is contained in the payload
     */
-  override val messageCode: MessageCode = 104: Byte
+  override val messageCode: MessageCode = 106: Byte
 
   /**
     * Name of this message type. For debug purposes only.
