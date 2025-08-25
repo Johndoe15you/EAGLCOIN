@@ -9,7 +9,7 @@ import scorex.crypto.authds.merkle.BatchMerkleProof
 import scorex.crypto.authds.merkle.serialization.BatchMerkleProofSerializer
 import scorex.crypto.hash.{Blake2b256, CryptographicHash, Digest32}
 import scorex.util.Extensions.IntOps
-import scorex.util.ModifierId
+import scorex.util.{ModifierId, ScorexLogging}
 import scorex.util.serialization.{Reader, Writer}
 import sigma.util.Extensions.LongOps
 
@@ -24,15 +24,24 @@ import sigma.util.Extensions.LongOps
 case class InputBlockInfo(version: Byte,
                           header: Header,
                           inputBlockFields: InputBlockFields,
-                          weakTxIds: Option[Seq[ErgoTransaction.WeakId]]) {
+                          weakTxIds: Option[Seq[ErgoTransaction.WeakId]]) extends ScorexLogging {
 
   lazy val id: ModifierId = header.id
 
   // todo: only pow && Merkle proof validated for now, check if it is enough
   def valid(powScheme: AutolykosPowScheme): Boolean = {
     // todo: check difficulty
-    powScheme.validate(header).isSuccess &&
-      inputBlockFields.inputBlockFieldsProof.valid(header.extensionRoot)
+
+    val powValid = powScheme.checkInputBlockPoW(header)
+    val extValid = inputBlockFields.inputBlockFieldsProof.valid(header.extensionRoot)
+
+    if (!powValid) {
+      log.warn(s"PoW check fails for sub-block ${header.id}")
+    }
+    if (!extValid) {
+      log.warn(s"Extension section check fails for sub-block ${header.id}")
+    }
+    powValid && extValid
   }
 
   def prevInputBlockId: Option[Array[Byte]] = inputBlockFields.prevInputBlockId

@@ -28,14 +28,12 @@ import org.ergoplatform.validation.{InvalidModifier, ModifierValidator, SoftFiel
 import scorex.db.ByteArrayUtils
 import scorex.util.serialization.{Reader, Writer}
 import scorex.util.{ModifierId, ScorexLogging, bytesToId}
-import scorex.utils.Ints
 import sigma.exceptions.SoftFieldAccessException
 import sigma.serialization.{ConstantStore, SigmaByteReader, SigmaByteWriter}
 
 import java.util
 import scala.annotation.nowarn
 import scala.collection.mutable
-import scala.util.hashing.MurmurHash3
 import scala.util.{Failure, Success, Try}
 
 /**
