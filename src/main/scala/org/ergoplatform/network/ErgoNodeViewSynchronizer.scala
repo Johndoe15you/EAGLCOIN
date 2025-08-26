@@ -1310,8 +1310,20 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
         penalizeMisbehavingPeer(remote)
       }
     } else {
-      log.info(s"Got sub-block for height ${subBlockHeader.height}, while height of our best full-block is ${hr.fullBlockHeight}")
-      // just ignore the subblock
+      if (subBlockHeader.height == hr.fullBlockHeight + 2) {
+
+        val orderingId = inputBlockInfo.header.parentId
+
+        // todo: save input block?
+
+        // todo: make it debug before release
+        log.info(s"On processing ${subBlockId}, downloading new ordering block $orderingId from $remote")
+
+        requestBlockSection(Header.modifierTypeId, Seq(orderingId), remote, 0)
+      } else {
+        log.info(s"Got sub-block for height ${subBlockHeader.height}, while height of our best full-block is ${hr.fullBlockHeight}")
+        // just ignore the subblock
+      }
     }
   }
 
