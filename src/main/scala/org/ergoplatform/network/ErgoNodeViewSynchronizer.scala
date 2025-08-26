@@ -1266,6 +1266,9 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
             if (diff.isEmpty) {
               // all the txs found or wIds empty, process immediately
 
+              // todo: make it debug before release
+              log.info(s"Diff is empty $subBlockId , processing immediately")
+
               // write sub-block and transactions to db
               viewHolderRef ! ProcessInputBlock(inputBlockInfo, remote)
               val transactionsData = InputBlockTransactionsData(inputBlockInfo.id, mempoolTxs)
@@ -1273,12 +1276,14 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
             } else {
               // in the first place, ask peer announced input-block for diff
 
-
-              // todo: do removal
+              // todo: do removal from localInputBlockChunks
               val ibdd = InputBlockDiffData(System.currentTimeMillis(), wIds, mempoolTxs)
               localInputBlockChunks.put(subBlockId, ibdd)
 
               val req = InputBlockTransactionsRequest(inputBlockInfo.id, diff)
+
+              // todo: make it debug before release
+              log.info(s"Diff is abt ${diff.length} transactions, asking them from $remote")
 
               val msg = Message(InputBlockTransactionsRequestMessageSpec, Right(req), None)
               networkControllerRef ! SendToNetwork(msg, SendToPeer(remote))
@@ -1292,6 +1297,9 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
 
             // write sub-block to db
             viewHolderRef ! ProcessInputBlock(inputBlockInfo, remote)
+
+            // todo: make it debug before release
+            log.info(s"No transactions announced for ${subBlockId}, asking for transacion ids from $remote")
 
             // ask for transaction ids
             val msg = Message(InputBlockTransactionIdsRequestMessageSpec, Right(inputBlockInfo.header.id), None)
@@ -1310,6 +1318,10 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
   def processInputBlockRequest(subBlockId: ModifierId, hr: ErgoHistoryReader, remote: ConnectedPeer): Unit = {
     hr.getInputBlock(subBlockId) match {
       case Some(sbi) =>
+
+        // todo: make it debug before release
+        log.info(s"Serving input-block data for ${subBlockId} requested by $remote")
+
         val msg = Message(InputBlockMessageSpec, Right(sbi), None)
         networkControllerRef ! SendToNetwork(msg, SendToPeer(remote))
       case None =>
@@ -1320,6 +1332,10 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
   def processInputBlockTransactionIdsRequest(subblockId: ModifierId, hr: ErgoHistoryReader, remote: ConnectedPeer): Unit = {
     hr.getInputBlockTransactionWeakIds(subblockId) match {
       case Some(ids) =>
+
+        // todo: make it debug before release
+        log.info(s"Serving input-block tx ids for ${subblockId} requested by $remote")
+
         val data = InputBlockTransactionIdsData(subblockId, ids)
         val msg = Message(InputBlockTransactionIdsMessageSpec, Right(data), None)
         networkControllerRef ! SendToNetwork(msg, SendToPeer(remote))
@@ -1333,6 +1349,10 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
     val wIds = txIds.transactionIds
     val (diff, mempoolTxs) = weakIdsDiff(mp, wIds)
 
+    // todo: make it debug before release
+    log.info(s"Processing input-block tx ids for ${subBlockId}")
+
+
     // todo: the code below is similar to processInputBlock, aside of sending inputBlock to ENVH, fix boilerplate
     if (diff.isEmpty) {
       // all the txs found or wIds empty, process immediately
@@ -1343,7 +1363,7 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
     } else {
       // in the first place, ask peer announced input-block for diff
 
-      // todo: do removal
+      // todo: do removal from localInputBlockChunks
       val ibdd = InputBlockDiffData(System.currentTimeMillis(), wIds, mempoolTxs)
       localInputBlockChunks.put(subBlockId, ibdd)
 
@@ -1358,6 +1378,10 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
   // todo: send transactions? or transaction ids? or switch from one option to another depending on message size ?
   def processInputBlockTransactionsRequest(req: InputBlockTransactionsRequest, hr: ErgoHistoryReader, remote: ConnectedPeer): Unit = {
     val subBlockId = req.inputBlockId
+
+    // todo: make it debug before release
+    log.info(s"Serving input-block txs for ${subBlockId} requested by $remote")
+
     // other peer is sending us weak ids of transactions it doesnt have, we serve it with them
     hr.getInputBlockTransactions(subBlockId, req.txIds) match {
       case Some(transactions) =>
@@ -1377,10 +1401,13 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
 
     // we combine input block transactionsgot from a peer with mempool (cached before), and send result for processing
 
-    val subblockId = transactionsData.inputBlockId
-    val localTxsOpt = localInputBlockChunks.get(subblockId)
+    val subBlockId = transactionsData.inputBlockId
+    val localTxsOpt = localInputBlockChunks.get(subBlockId)
 
     val localTxsLength = localTxsOpt.map(_.weakTxsIds.length).getOrElse(0)
+
+    // todo: make it debug before release
+    log.info(s"Processing input-block txs for ${subBlockId} , local txs: ${localTxsLength}, external txs: ${transactionsData.transactions.length}")
 
     if (localTxsLength == 0) {
       viewHolderRef ! ProcessInputBlockTransactions(transactionsData)
@@ -1401,7 +1428,7 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
         resTxs(i) = tx
       }
 
-      val res = InputBlockTransactionsData(subblockId, resTxs)
+      val res = InputBlockTransactionsData(subBlockId, resTxs)
       viewHolderRef ! ProcessInputBlockTransactions(res)
     }
   }
