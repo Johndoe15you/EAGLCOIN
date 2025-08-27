@@ -1,5 +1,6 @@
 package org.ergoplatform.network
 
+import org.ergoplatform.nodeView.state.StateType.Utxo
 import scorex.core.network.ConnectedPeer
 
 /**
@@ -68,11 +69,13 @@ object SyncV2Filter extends VersionBasedPeerFilteringRule {
   * Filter used to differentiate peers supporting UTXO state snapshots, so possibly
   * storing and serving them, from peers do not supporting UTXO set snapshots related networking protocol
   */
-object UtxoSetNetworkingFilter extends VersionBasedPeerFilteringRule {
+object UtxoSetNetworkingFilter extends PeerFilteringRule {
 
-  def condition(version: Version): Boolean = {
+  def condition(peer: ConnectedPeer): Boolean = {
+    val version = peer.peerInfo.map(_.peerSpec.protocolVersion).getOrElse(Version.Eip37ForkVersion)
+
     // If neighbour version is >= `UtxoSnapsnotActivationVersion`, the neighbour supports utxo snapshots exchange
-    version.compare(Version.UtxoSnapsnotActivationVersion) >= 0
+    peer.mode.exists(_.stateType == Utxo) && version.compare(Version.UtxoSnapsnotActivationVersion) >= 0
   }
 
 }
