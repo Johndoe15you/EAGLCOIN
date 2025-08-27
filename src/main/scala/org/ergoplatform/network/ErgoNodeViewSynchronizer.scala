@@ -1311,6 +1311,8 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
       }
     } else {
       if (subBlockHeader.height == hr.fullBlockHeight + 2) {
+        // if we receive sub-block after ordering block which is not known but has better height than us (by one,
+        // so probably child of our best block), download ordering block ASAP
 
         val orderingId = inputBlockInfo.header.parentId
 
@@ -1806,7 +1808,9 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
           }
           val peers = syncTracker.statuses.filter { s =>
             val status = s._2.status
-            status == Equal || status == Fork
+            // todo: send to ones in utxo mode only, send to height of ours minues one
+            // send input block to peers on same height and also supporting sub-blocks
+            SubBlocksFilter.condition(s._1) && (status == Equal || status == Fork)
           }.keys.toSeq
           val msg = Message(InputBlockMessageSpec, Right(ibi), None)
           networkControllerRef ! SendToNetwork(msg, SendToPeers(peers))

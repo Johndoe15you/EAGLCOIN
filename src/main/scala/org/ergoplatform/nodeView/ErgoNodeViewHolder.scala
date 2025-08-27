@@ -339,7 +339,8 @@ abstract class ErgoNodeViewHolder[State <: ErgoState[State]](settings: ErgoSetti
       processOrderingBlock(orderingBlockAnnouncement)
   }
 
-  private def processInputBlockTransactions(inputBlockId: ModifierId, transactions: Seq[ErgoTransaction]): Unit = {
+  private def processInputBlockTransactions(inputBlockId: ModifierId,
+                                            transactions: Seq[ErgoTransaction]): Unit = {
     // apply input block transactions
     val newBestInputBlocks = history().applyInputBlockTransactions(inputBlockId, transactions, minimalState())
     newBestInputBlocks.foreach { id =>
