@@ -1134,7 +1134,7 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
         if (txAcceptanceFilter) {
           val unknownMods = {
             // check that transaction is not in the mempool already or invalidated earlier
-            invData.ids.filter{mid =>
+            invData.ids.filter { mid =>
               deliveryTracker.status(mid, modifierTypeId, Seq(mp)) == ModifiersStatus.Unknown &&
                 !mp.isInvalidated(mid)
             }

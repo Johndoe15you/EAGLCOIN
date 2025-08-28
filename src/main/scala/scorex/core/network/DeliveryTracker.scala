@@ -107,7 +107,7 @@ class DeliveryTracker(cacheSettings: NetworkCacheSettings,
     else Unknown
 
   // Write ERR message about incorrect transition into the log, so devs will find it eventually
-  def checkStatusTransition(oldStatus: ModifiersStatus, expectedStatues: ModifiersStatus): Unit = {
+  private def checkStatusTransition(oldStatus: ModifiersStatus, expectedStatues: ModifiersStatus): Unit = {
     if (!isCorrectTransition(oldStatus, expectedStatues)) {
       log.error(s"Illegal status transition: $oldStatus -> $expectedStatues")
     }

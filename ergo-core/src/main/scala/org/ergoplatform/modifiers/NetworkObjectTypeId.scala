@@ -25,13 +25,22 @@ object NetworkObjectTypeId {
     * Block section could have ids >= this threshold only
     * Other p2p network objects have type id below the threshold
     */
-  val BlockSectionThreshold: Value = Value @@ 50.toByte
+  private val BlockSectionThreshold: Value = Value @@ 50.toByte
 
   /**
     * Whether network object type corresponding to block sections, returns true if so
     */
   def isBlockSection(typeId: Value): Boolean = {
     typeId >= BlockSectionThreshold
+  }
+
+  def isTypeKnown(typeId: Value) = {
+    typeId match {
+      case HeaderTypeId.value | BlockTransactionsTypeId.value | ProofsTypeId.value |
+           ExtensionTypeId.value | TransactionTypeId.value | FullBlockTypeId.value |
+           UtxoSnapshotChunkTypeId.value | SnapshotsInfoTypeId.value | ManifestTypeId.value => true
+      case _ => false
+    }
   }
 
 }
