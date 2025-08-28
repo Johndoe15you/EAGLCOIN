@@ -34,7 +34,7 @@ object NetworkObjectTypeId {
     typeId >= BlockSectionThreshold
   }
 
-  def isTypeKnown(typeId: Value) = {
+  def isTypeKnown(typeId: Value): Boolean = {
     typeId match {
       case HeaderTypeId.value | BlockTransactionsTypeId.value | ProofsTypeId.value |
            ExtensionTypeId.value | TransactionTypeId.value | FullBlockTypeId.value |
@@ -124,3 +124,5 @@ object SnapshotsInfoTypeId extends AuxiliaryTypeId {
 object ManifestTypeId extends AuxiliaryTypeId {
   override val value: Value = fromByte(-124)
 }
+
+// Modify `NetworkObjectTypeId.isTypeKnown` on adding new objects!

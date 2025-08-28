@@ -137,15 +137,6 @@ class DeliveryTracker(cacheSettings: NetworkCacheSettings,
     requested.get(typeId).flatMap(_.get(id))
   }
 
-  /** Get peer we're communicating with in regards with modifier `id` **/
-  def getSource(id: ModifierId, modifierTypeId: NetworkObjectTypeId.Value): Option[ConnectedPeer] = {
-    status(id, modifierTypeId, Seq.empty) match {
-      case Requested => requested.get(modifierTypeId).flatMap(_.get(id)).map(_.peer)
-      case Received => received.get(modifierTypeId).flatMap(_.get(id))
-      case _ => None
-    }
-  }
-
   /**
     * Modified with id `id` is permanently invalid - set its status to `Invalid`
     * and return [[ConnectedPeer]] which sent bad modifier.
