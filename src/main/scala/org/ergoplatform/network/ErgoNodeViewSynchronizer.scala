@@ -4,7 +4,7 @@ import akka.actor.SupervisorStrategy.{Restart, Stop}
 import akka.actor.{Actor, ActorInitializationException, ActorKilledException, ActorRef, ActorRefFactory, DeathPactException, OneForOneStrategy, Props}
 import org.ergoplatform.modifiers.history.header.{Header, HeaderSerializer}
 import org.ergoplatform.modifiers.mempool.{ErgoTransaction, ErgoTransactionSerializer, UnconfirmedTransaction}
-import org.ergoplatform.modifiers.{BlockSection, ErgoNodeViewModifier, InputBlockTransactionsTypeId, InputBlockTypeId, ManifestTypeId, NetworkObjectTypeId, SnapshotsInfoTypeId, UtxoSnapshotChunkTypeId}
+import org.ergoplatform.modifiers.{BlockSection, ErgoNodeViewModifier, InputBlockTransactionIdsTypeId, InputBlockTypeId, ManifestTypeId, NetworkObjectTypeId, SnapshotsInfoTypeId, UtxoSnapshotChunkTypeId}
 import org.ergoplatform.nodeView.history.{ErgoHistory, ErgoHistoryReader, ErgoSyncInfo, ErgoSyncInfoMessageSpec, ErgoSyncInfoV1, ErgoSyncInfoV2}
 import org.ergoplatform.nodeView.ErgoNodeViewHolder.BlockAppliedTransactions
 import org.ergoplatform.nodeView.mempool.{ErgoMemPool, ErgoMemPoolReader}
@@ -1183,7 +1183,7 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
       return // todo: better control flow
     }
 
-    if (invData.typeId == InputBlockTransactionsTypeId.value) {
+    if (invData.typeId == InputBlockTransactionIdsTypeId.value) {
       invData.ids.foreach {id =>
         processInputBlockTransactionIdsRequest(id, hr, remote)
       }
@@ -1258,14 +1258,18 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
   // INPUT BLOCKS RELATED LOGIC
 
   def requestInputBlock(sbId: ModifierId, remote: ConnectedPeer): Unit = {
-    // todo: set requested in delivery tracker, retries
+    deliveryTracker.setRequested(InputBlockTypeId.value, sbId, remote) { deliveryCheck =>
+      context.system.scheduler.scheduleOnce(deliveryTimeout, self, deliveryCheck)
+    }
     val msg = Message(RequestModifierSpec, Right(InvData(InputBlockTypeId.value, Seq(sbId))), None)
     networkControllerRef ! SendToNetwork(msg, SendToPeer(remote))
   }
 
   def requestInputBlockTransactionIds(inputBlockInfo: InputBlockInfo, remote: ConnectedPeer): Unit = {
-    // todo: set requested in delivery tracker, retries
-    val data = InvData(InputBlockTransactionsTypeId.value, Seq(inputBlockInfo.header.id))
+    deliveryTracker.setRequested(InputBlockTransactionIdsTypeId.value, inputBlockInfo.id, remote) { deliveryCheck =>
+      context.system.scheduler.scheduleOnce(deliveryTimeout, self, deliveryCheck)
+    }
+    val data = InvData(InputBlockTransactionIdsTypeId.value, Seq(inputBlockInfo.header.id))
     val msg = Message(RequestModifierSpec, Right(data), None)
     networkControllerRef ! SendToNetwork(msg, SendToPeer(remote))
   }
@@ -1558,6 +1562,15 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
               newPeerOpt match {
                 case Some(newPeer) => requestUtxoSetChunk(Digest32 @@ Algos.decode(modifierId).get, newPeer)
                 case None => log.warn(s"No peer found to download UTXO set chunk $modifierId")
+              }
+            } else if (modifierTypeId == InputBlockTypeId.value || modifierTypeId == InputBlockTransactionIdsTypeId.value) {
+              deliveryTracker.setUnknown(modifierId, modifierTypeId)
+              if (modifierTypeId == InputBlockTypeId.value) {
+                requestInputBlock(modifierId, peer)
+              } else {
+                hr.getInputBlock(modifierId).foreach { ibi =>
+                  requestInputBlockTransactionIds(ibi, peer)
+                }
               }
             } else {
               // randomly choose a peer for another block sections download attempt
