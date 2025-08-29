@@ -4,7 +4,7 @@ import akka.actor.SupervisorStrategy.{Restart, Stop}
 import akka.actor.{Actor, ActorInitializationException, ActorKilledException, ActorRef, ActorRefFactory, DeathPactException, OneForOneStrategy, Props}
 import org.ergoplatform.modifiers.history.header.{Header, HeaderSerializer}
 import org.ergoplatform.modifiers.mempool.{ErgoTransaction, ErgoTransactionSerializer, UnconfirmedTransaction}
-import org.ergoplatform.modifiers.{BlockSection, ErgoNodeViewModifier, ManifestTypeId, NetworkObjectTypeId, SnapshotsInfoTypeId, UtxoSnapshotChunkTypeId}
+import org.ergoplatform.modifiers.{BlockSection, ErgoNodeViewModifier, InputBlockTransactionsTypeId, InputBlockTypeId, ManifestTypeId, NetworkObjectTypeId, SnapshotsInfoTypeId, UtxoSnapshotChunkTypeId}
 import org.ergoplatform.nodeView.history.{ErgoHistory, ErgoHistoryReader, ErgoSyncInfo, ErgoSyncInfoMessageSpec, ErgoSyncInfoV1, ErgoSyncInfoV2}
 import org.ergoplatform.nodeView.ErgoNodeViewHolder.BlockAppliedTransactions
 import org.ergoplatform.nodeView.mempool.{ErgoMemPool, ErgoMemPoolReader}
@@ -648,7 +648,7 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
       }
     case DownloadInputBlock(sbId, remote) =>
       // processing internal request to download an input block
-      val msg = Message(InputBlockRequestMessageSpec, Right(sbId), None)
+      val msg = Message(RequestModifierSpec, Right(InvData(InputBlockTypeId.value, Seq(sbId))), None)
       networkControllerRef ! SendToNetwork(msg, SendToPeer(remote))
     case DownloadInputBlockTransactions(req, remote) =>
       // processing internal request to download input block transactions
@@ -1177,7 +1177,21 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
 
   //other node asking for objects by their ids
   protected def modifiersReq(hr: ErgoHistory, mp: ErgoMemPool, invData: InvData, remote: ConnectedPeer): Unit = {
-      val objs: Seq[(ModifierId, Array[Byte])] = invData.typeId match {
+    if (invData.typeId == InputBlockTypeId.value) {
+      invData.ids.foreach {id =>
+        processInputBlockRequest(id, hr, remote)
+      }
+      return // todo: better control flow
+    }
+
+    if (invData.typeId == InputBlockTransactionsTypeId.value) {
+      invData.ids.foreach {id =>
+        processInputBlockTransactionIdsRequest(id, hr, remote)
+      }
+      return // todo: better control flow
+    }
+
+    val objs: Seq[(ModifierId, Array[Byte])] = invData.typeId match {
         case typeId: NetworkObjectTypeId.Value if typeId == ErgoTransaction.modifierTypeId =>
           mp.getAll(invData.ids).map { unconfirmedTx =>
             unconfirmedTx.transaction.id -> unconfirmedTx.transactionBytes.getOrElse(unconfirmedTx.transaction.bytes)
@@ -1302,7 +1316,8 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
             log.info(s"No transactions announced for ${subBlockId}, asking for transacion ids from $remote")
 
             // ask for transaction ids
-            val msg = Message(InputBlockTransactionIdsRequestMessageSpec, Right(inputBlockInfo.header.id), None)
+            val data = InvData(InputBlockTransactionsTypeId.value, Seq(inputBlockInfo.header.id))
+            val msg = Message(RequestModifierSpec, Right(data), None)
             networkControllerRef ! SendToNetwork(msg, SendToPeer(remote))
         }
       } else {
@@ -1319,7 +1334,7 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
         // todo: save input block?
 
         // todo: make it debug before release
-        log.info(s"On processing ${subBlockId}, downloading new ordering block $orderingId from $remote")
+        log.info(s"On processing $subBlockId, downloading new ordering block $orderingId from $remote")
 
         requestBlockSection(Header.modifierTypeId, Seq(orderingId), remote, 0)
       } else {
@@ -1868,10 +1883,6 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
     // Sub-blocks related messages
     case (_: InputBlockMessageSpec.type, subBlockInfo: InputBlockInfo, remote) =>
       processInputBlock(subBlockInfo, hr, mp, remote)
-    case (_: InputBlockRequestMessageSpec.type, subBlockId: String, remote) =>
-      processInputBlockRequest(ModifierId @@ subBlockId, hr, remote)
-    case (_: InputBlockTransactionIdsRequestMessageSpec.type, subBlockId: String, remote) =>
-      processInputBlockTransactionIdsRequest(ModifierId @@ subBlockId, hr, remote)
     case (_: InputBlockTransactionIdsMessageSpec.type, transactionIds: InputBlockTransactionIdsData, remote) =>
       processInputBlockTransactionIds(transactionIds, mp, remote)
     case (_: InputBlockTransactionsRequestMessageSpec.type, req: InputBlockTransactionsRequest, remote) =>

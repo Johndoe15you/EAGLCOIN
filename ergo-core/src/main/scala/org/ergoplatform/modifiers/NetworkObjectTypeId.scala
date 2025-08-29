@@ -38,7 +38,8 @@ object NetworkObjectTypeId {
     typeId match {
       case HeaderTypeId.value | BlockTransactionsTypeId.value | ProofsTypeId.value |
            ExtensionTypeId.value | TransactionTypeId.value | FullBlockTypeId.value |
-           UtxoSnapshotChunkTypeId.value | SnapshotsInfoTypeId.value | ManifestTypeId.value => true
+           UtxoSnapshotChunkTypeId.value | SnapshotsInfoTypeId.value | ManifestTypeId.value |
+           InputBlockTypeId.value | InputBlockTransactionsTypeId.value => true
       case _ => false
     }
   }
@@ -124,5 +125,17 @@ object SnapshotsInfoTypeId extends AuxiliaryTypeId {
 object ManifestTypeId extends AuxiliaryTypeId {
   override val value: Value = fromByte(-124)
 }
+
+/**
+  * Input block info: header, possibly transaction ids, extension fields
+  */
+object InputBlockTypeId extends AuxiliaryTypeId {
+  override val value: Value = fromByte(-123)
+}
+
+object InputBlockTransactionsTypeId extends AuxiliaryTypeId {
+  override val value: Value = fromByte(-122)
+}
+
 
 // Modify `NetworkObjectTypeId.isTypeKnown` on adding new objects!
