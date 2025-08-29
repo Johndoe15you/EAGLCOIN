@@ -648,8 +648,7 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
       }
     case DownloadInputBlock(sbId, remote) =>
       // processing internal request to download an input block
-      val msg = Message(RequestModifierSpec, Right(InvData(InputBlockTypeId.value, Seq(sbId))), None)
-      networkControllerRef ! SendToNetwork(msg, SendToPeer(remote))
+      requestInputBlock(sbId, remote)
     case DownloadInputBlockTransactions(req, remote) =>
       // processing internal request to download input block transactions
       val msg = Message(InputBlockTransactionsRequestMessageSpec, Right(req), None)
@@ -1256,6 +1255,22 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
     diffIds -> mempoolTxs
   }
 
+  // INPUT BLOCKS RELATED LOGIC
+
+  def requestInputBlock(sbId: ModifierId, remote: ConnectedPeer): Unit = {
+    // todo: set requested in delivery tracker, retries
+    val msg = Message(RequestModifierSpec, Right(InvData(InputBlockTypeId.value, Seq(sbId))), None)
+    networkControllerRef ! SendToNetwork(msg, SendToPeer(remote))
+  }
+
+  def requestInputBlockTransactionIds(inputBlockInfo: InputBlockInfo, remote: ConnectedPeer): Unit = {
+    // todo: set requested in delivery tracker, retries
+    val data = InvData(InputBlockTransactionsTypeId.value, Seq(inputBlockInfo.header.id))
+    val msg = Message(RequestModifierSpec, Right(data), None)
+    networkControllerRef ! SendToNetwork(msg, SendToPeer(remote))
+  }
+
+
   def processInputBlock(inputBlockInfo: InputBlockInfo,
                         hr: ErgoHistoryReader,
                         mp: ErgoMemPoolReader,
@@ -1316,9 +1331,7 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
             log.info(s"No transactions announced for ${subBlockId}, asking for transacion ids from $remote")
 
             // ask for transaction ids
-            val data = InvData(InputBlockTransactionsTypeId.value, Seq(inputBlockInfo.header.id))
-            val msg = Message(RequestModifierSpec, Right(data), None)
-            networkControllerRef ! SendToNetwork(msg, SendToPeer(remote))
+            requestInputBlockTransactionIds(inputBlockInfo, remote)
         }
       } else {
         log.warn(s"Sub-block ${subBlockHeader.id} is invalid")
