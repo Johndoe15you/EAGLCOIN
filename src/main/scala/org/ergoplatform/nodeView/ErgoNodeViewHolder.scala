@@ -235,7 +235,7 @@ abstract class ErgoNodeViewHolder[State <: ErgoState[State]](settings: ErgoSetti
                   // if this is new best block, reset best input block ref around the node
                   if (header.height == chainTipOpt.getOrElse(-1) + 1) {
                     history.updateStateWithOrderingBlock(header)
-                    context.system.eventStream.publish(NewBestInputBlock(None))
+                    context.system.eventStream.publish(NewBestInputBlock(None, local = false))
                   }
                 }
                 UpdateInformation(newHis, stateAfterApply, None, None, updateInfo.suffix :+ modToApply)
@@ -326,26 +326,33 @@ abstract class ErgoNodeViewHolder[State <: ErgoState[State]](settings: ErgoSetti
           // we already have transactions, that is possible sometimes if they arrive before the input block
           // over p2p network
           log.debug(s"Got input block ${inputBlockInfo.id} transactions before the input block itself")
-          processInputBlockTransactions(inputBlockInfo.id, txs)
+          processInputBlockTransactions(inputBlockInfo.id, txs, local = false)
         case None =>
           // we dont do anything here, p2p layer (ErgoNodeViewSynchronizer) will download transactions
           // and call ProcessInputBlockTransactions
       }
 
     case ProcessInputBlockTransactions(std) =>
-      processInputBlockTransactions(std.inputBlockId, std.transactions)
+      processInputBlockTransactions(std.inputBlockId, std.transactions, local = false)
 
     case ProcessOrderingBlock(orderingBlockAnnouncement) =>
       processOrderingBlock(orderingBlockAnnouncement)
   }
 
+  /**
+    * Process transactions for input block
+    * @param inputBlockId - input block id
+    * @param transactions - input block transactions
+    * @param local - true if the input block is generated locally, false if it is got over p2p network
+    */
   private def processInputBlockTransactions(inputBlockId: ModifierId,
-                                            transactions: Seq[ErgoTransaction]): Unit = {
+                                            transactions: Seq[ErgoTransaction],
+                                            local: Boolean): Unit = {
     // apply input block transactions
     val newBestInputBlocks = history().applyInputBlockTransactions(inputBlockId, transactions, minimalState())
     newBestInputBlocks.foreach { id =>
       log.debug(s"New input-block with transactions found: $id")
-      context.system.eventStream.publish(NewBestInputBlock(Some(id)))
+      context.system.eventStream.publish(NewBestInputBlock(Some(id), local))
     }
   }
 
@@ -395,7 +402,7 @@ abstract class ErgoNodeViewHolder[State <: ErgoState[State]](settings: ErgoSetti
             pmodModify(bs, local = false)
 
             // for other cases, NewBestInputBlock(None) is sent in applyState() of this class
-            context.system.eventStream.publish(NewBestInputBlock(None))
+            context.system.eventStream.publish(NewBestInputBlock(None, local = false))
           } else {
             log.warn(s"Downloading block transactions fully for $headerId as Merkle root does not match")
             context.system.eventStream.publish(DownloadRequest(Map(BlockTransactions.modifierTypeId -> Seq(header.transactionsId))))
@@ -795,7 +802,7 @@ abstract class ErgoNodeViewHolder[State <: ErgoState[State]](settings: ErgoSetti
         log.error(s"Shouldn't be there: input-block ${subblockInfo.id} generated locally when its parent is not available")
       }
 
-      processInputBlockTransactions(subblockInfo.id, subBlockTransactionsData.transactions)
+      processInputBlockTransactions(subblockInfo.id, subBlockTransactionsData.transactions, local = true)
   }
 
   protected def getCurrentInfo: Receive = {

@@ -51,7 +51,13 @@ object ErgoNodeViewSynchronizerMessages {
 
     case class ChangedState(reader: ErgoStateReader) extends NodeViewChange
 
-    case class NewBestInputBlock(idOpt: Option[ModifierId]) extends NodeViewChange
+  /**
+    * Signal informing about new best input block generated
+    * @param idOpt - identifier of the input block, if None than new ordering block got generated, ie best input block
+    *                reference should be reset
+    * @param local - if true, the input block is generated locally
+    */
+    case class NewBestInputBlock(idOpt: Option[ModifierId], local: Boolean) extends NodeViewChange
 
     /**
      * Event which is published when rollback happened (on finding a better chain)

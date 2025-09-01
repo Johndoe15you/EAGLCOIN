@@ -1834,31 +1834,37 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
       }
 
     // todo: broadcast only locally generated new best input block?
-    case NewBestInputBlock(Some(id)) =>
+    case NewBestInputBlock(Some(id), local) =>
       historyReader.getInputBlock(id) match {
         case Some(preIbi) =>
-          log.debug(s"Sending input block $id out")
+          if(local) {
+            log.debug(s"Sending locally generated input block $id out")
 
-          // we propagate input block with transactions immediately if it has no more than 3 transactions
-          // todo: check number of transactions on retrieval
-          // todo: improve high/low bandwidth rules
-          val ibi = if(preIbi.weakTxIds.size <= 3) {
-            preIbi
+            // we propagate input block with transactions immediately if it has no more than 3 transactions
+            // todo: check number of transactions on retrieval
+            // todo: improve high/low bandwidth rules
+            val ibi = if (preIbi.weakTxIds.size <= 3) {
+              preIbi
+            } else {
+              preIbi.copy(weakTxIds = None)
+            }
+            val peers = syncTracker.statuses.filter { s =>
+              val status = s._2.status
+              // todo: send to ones in utxo mode only, send to height of ours minues one
+              // send input block to peers on same height and also supporting sub-blocks
+              SubBlocksFilter.condition(s._1) && (status == Equal || status == Fork)
+            }.keys.toSeq
+            val msg = Message(InputBlockMessageSpec, Right(ibi), None)
+            networkControllerRef ! SendToNetwork(msg, SendToPeers(peers))
           } else {
-            preIbi.copy(weakTxIds = None)
+            // todo: send only id out
           }
-          val peers = syncTracker.statuses.filter { s =>
-            val status = s._2.status
-            // todo: send to ones in utxo mode only, send to height of ours minues one
-            // send input block to peers on same height and also supporting sub-blocks
-            SubBlocksFilter.condition(s._1) && (status == Equal || status == Fork)
-          }.keys.toSeq
-          val msg = Message(InputBlockMessageSpec, Right(ibi), None)
-          networkControllerRef ! SendToNetwork(msg, SendToPeers(peers))
         case None =>
+          // shouldnt be there by input block processing logic
+          log.error(s"NewBestInputBlock arrived for input block not in the database $id")
       }
 
-    case NewBestInputBlock(None) =>
+    case NewBestInputBlock(None, _) =>
       // this signal is sent on ordering block application, nothing p2p layer should do
   }
 

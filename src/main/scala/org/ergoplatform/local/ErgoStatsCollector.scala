@@ -132,7 +132,7 @@ class ErgoStatsCollector(readersHolder: ActorRef,
         fullBlocksScore = h.bestFullBlockOpt.flatMap(m => h.scoreOf(m.id))
       )
 
-    case NewBestInputBlock(vOpt) =>
+    case NewBestInputBlock(vOpt, _) =>
       nodeInfo = nodeInfo.copy(bestInputBlockId = vOpt)
   }
 
