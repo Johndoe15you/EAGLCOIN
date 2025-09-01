@@ -1479,28 +1479,34 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
     }
   }
 
-  def processOrderingBlockAnnouncement(oba: OrderingBlockAnnouncement,
-                                       hr: ErgoHistoryReader,
-                                       remote: ConnectedPeer): Unit = {
-    // todo: for now, we just check if referenced input block is stored
-    // todo: if so, input blocks are used, otherwise, full block is downloaded
-    // todo: instead, missing input blocks should be downloaded
+  private def processOrderingBlockAnnouncement(oba: OrderingBlockAnnouncement,
+                                               hr: ErgoHistoryReader,
+                                               remote: ConnectedPeer): Unit = {
 
-    val prevInputBlockIdOpt = oba.extensionFields.find(_._1.sameElements(PrevInputBlockIdKey))
+    if (!hr.contains(oba.header.id)) {
+      // todo: for now, we just check if referenced input block is stored
+      // todo: if so, input blocks are used, otherwise, full block is downloaded
+      // todo: instead, missing input blocks should be downloaded
 
-    val inputBlockStored = prevInputBlockIdOpt.map { t =>
-      hr.getInputBlockTransactions(bytesToId(t._2)).isDefined
-    }.getOrElse(true)
+      val prevInputBlockIdOpt = oba.extensionFields.find(_._1.sameElements(PrevInputBlockIdKey))
 
-    if (inputBlockStored) {
-      log.info(s"Processing ordering block  ${oba.header.id}") // todo: make it .debug
-      viewHolderRef ! ProcessOrderingBlock(oba)
+      val inputBlockStored = prevInputBlockIdOpt.map { t =>
+        hr.getInputBlockTransactions(bytesToId(t._2)).isDefined
+      }.getOrElse(true)
+
+      if (inputBlockStored) {
+        log.info(s"Processing ordering block  ${oba.header.id}") // todo: make it .debug
+        viewHolderRef ! ProcessOrderingBlock(oba)
+      } else {
+        // todo: sub-blocks: request full block for now
+        log.info(s"Requesting all the block transactions for ${oba.header.id} as prev input block not found")
+        val ext = Extension(oba.header.id, oba.extensionFields)
+        viewHolderRef ! ModifiersFromRemote(Seq(ext))
+        requestBlockSection(BlockTransactions.modifierTypeId, Array(oba.header.transactionsId), remote)
+      }
     } else {
-      // todo: sub-blocks: request full block for now
-      log.info(s"Requesting all the block transactions for ${oba.header.id} as prev input block not found")
-      val ext = Extension(oba.header.id, oba.extensionFields)
-      viewHolderRef ! ModifiersFromRemote(Seq(ext))
-      requestBlockSection(BlockTransactions.modifierTypeId, Array(oba.header.transactionsId), remote)
+      // todo: make .debug before release
+      log.info(s"Ignoring ordering block announcement as it is already known: ${oba.header.id}")
     }
   }
 
@@ -1710,7 +1716,6 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
 
         log.debug(s"Sending ordering block ann to $sendOrderingTo , sending old format block sections to $sendFullTo")
 
-
         // send block sections in full for older peers not supporting sub-blocks
         if (sendFullTo.nonEmpty) {
           val peersOpt = Some(sendFullTo.toSeq)
@@ -1722,7 +1727,7 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
           // broadcast subblock announcement
           val otOpt = historyReader.getOrderingBlockTransactions(header.id)
           val extOpt = historyReader.typedModifierById[Extension](header.extensionId)
-          if(otOpt.isDefined && extOpt.isDefined) {
+          if (otOpt.isDefined && extOpt.isDefined) {
             val ot = otOpt.get
             val ext = extOpt.get
             val obAnn = OrderingBlockAnnouncement(header, ot, Seq.empty, ext.fields) // todo: send ids for previously broadcasted txs, not .empty
