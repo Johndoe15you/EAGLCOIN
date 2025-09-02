@@ -9,7 +9,7 @@ class NetworkObjectTypeIdSpec extends AnyPropSpec with ScalaCheckPropertyChecks 
   // Known type IDs from the implementation
   val knownTypeIds: Set[Byte] = Set(
     101, 102, 104, 108, // Block section types
-    2, -127, -126, -125, -124, -123, -122 // Auxiliary types
+    2, -127, -126, -125, -124, -123, -122, -121 // Auxiliary types
   ).map(_.toByte)
 
   property("isTypeKnown should return true for all known type IDs") {

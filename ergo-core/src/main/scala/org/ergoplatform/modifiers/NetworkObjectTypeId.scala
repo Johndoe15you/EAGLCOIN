@@ -39,7 +39,7 @@ object NetworkObjectTypeId {
       case HeaderTypeId.value | BlockTransactionsTypeId.value | ProofsTypeId.value |
            ExtensionTypeId.value | TransactionTypeId.value | FullBlockTypeId.value |
            UtxoSnapshotChunkTypeId.value | SnapshotsInfoTypeId.value | ManifestTypeId.value |
-           InputBlockTypeId.value | InputBlockTransactionIdsTypeId.value => true
+           InputBlockTypeId.value | InputBlockTransactionIdsTypeId.value | OrderingBlockAnnouncementTypeId.value => true
       case _ => false
     }
   }
@@ -135,6 +135,10 @@ object InputBlockTypeId extends AuxiliaryTypeId {
 
 object InputBlockTransactionIdsTypeId extends AuxiliaryTypeId {
   override val value: Value = fromByte(-122)
+}
+
+object OrderingBlockAnnouncementTypeId extends AuxiliaryTypeId {
+  override val value: Value = fromByte(-121)
 }
 
 
