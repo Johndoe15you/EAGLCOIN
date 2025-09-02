@@ -1258,9 +1258,7 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
   // INPUT BLOCKS RELATED LOGIC
 
   def requestInputBlock(sbId: ModifierId, remote: ConnectedPeer): Unit = {
-    deliveryTracker.setRequested(InputBlockTypeId.value, sbId, remote) { deliveryCheck =>
-      context.system.scheduler.scheduleOnce(deliveryTimeout, self, deliveryCheck)
-    }
+    // currently we request input block only once // todo: recheck this
     val msg = Message(RequestModifierSpec, Right(InvData(InputBlockTypeId.value, Seq(sbId))), None)
     networkControllerRef ! SendToNetwork(msg, SendToPeer(remote))
   }
@@ -1355,7 +1353,7 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
 
         requestBlockSection(Header.modifierTypeId, Seq(orderingId), remote, 0)
       } else {
-        log.info(s"Got sub-block for height ${subBlockHeader.height}, while height of our best full-block is ${hr.fullBlockHeight}")
+        log.info(s"Got sub-block for height ${subBlockHeader.height}, while height of our best full-block is ${hr.fullBlockHeight} : ${subBlockHeader.id}")
         // just ignore the subblock
       }
     }
@@ -1453,7 +1451,7 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
     val localTxsLength = localTxsOpt.map(_.weakTxsIds.length).getOrElse(0)
 
     // todo: make it debug before release
-    log.info(s"Processing input-block txs for ${subBlockId} , local txs: ${localTxsLength}, external txs: ${transactionsData.transactions.length}")
+    log.info(s"Processing input-block txs for $subBlockId , local txs: ${localTxsLength}, external txs: ${transactionsData.transactions.length}")
 
     if (localTxsLength == 0) {
       viewHolderRef ! ProcessInputBlockTransactions(transactionsData)
@@ -1495,7 +1493,7 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
       }.getOrElse(true)
 
       if (inputBlockStored) {
-        log.info(s"Processing ordering block  ${oba.header.id}") // todo: make it .debug
+        log.info(s"Processing ordering block ${oba.header.id}") // todo: make it .debug
         viewHolderRef ! ProcessOrderingBlock(oba)
       } else {
         // todo: sub-blocks: request full block for now
@@ -1571,9 +1569,11 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
               }
             } else if (modifierTypeId == InputBlockTypeId.value || modifierTypeId == InputBlockTransactionIdsTypeId.value) {
               deliveryTracker.setUnknown(modifierId, modifierTypeId)
-              if (modifierTypeId == InputBlockTypeId.value) {
+              if (modifierTypeId == InputBlockTypeId.value && checksDone < 2) {
+                log.info(s"re-requesting input block $modifierId")
                 requestInputBlock(modifierId, peer)
               } else {
+                log.info(s"re-requesting input txs $modifierId")
                 hr.getInputBlock(modifierId).foreach { ibi =>
                   requestInputBlockTransactionIds(ibi, peer)
                 }
@@ -1696,7 +1696,9 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
         }
       }
 
-    // If new enough semantically valid ErgoFullBlock was applied, send inv for block header and all its sections
+    // If new enough semantically valid ErgoFullBlock was applied:
+    // 1) send inv for block header and all its sections to peers not supporting input/ordering blocks
+    // 2) send ordering block announcement to peers supporting input/ordering blocks
     case FullBlockApplied(header) =>
       if (historyReader.bestHeaderOpt.exists(_.height <= header.height)) {
         val knownPeers = syncTracker.fullInfo()
@@ -1727,14 +1729,13 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
           // broadcast subblock announcement
           val otOpt = historyReader.getOrderingBlockTransactions(header.id)
           val extOpt = historyReader.typedModifierById[Extension](header.extensionId)
-          if (otOpt.isDefined && extOpt.isDefined) {
-            val ot = otOpt.get
-            val ext = extOpt.get
-            val obAnn = OrderingBlockAnnouncement(header, ot, Seq.empty, ext.fields) // todo: send ids for previously broadcasted txs, not .empty
-            val msg = Message(OrderingBlockAnnouncementMessageSpec, Right(obAnn), None)
-            networkControllerRef ! SendToNetwork(msg, SendToPeers(sendOrderingTo.toSeq))
-          } else {
-            log.warn(s"Not found ordering block transactions and/or extension for ${header.id} during broadcasting")
+          (otOpt, extOpt) match {
+            case (Some(ot), Some(ext)) =>
+              val obAnn = OrderingBlockAnnouncement(header, ot, Seq.empty, ext.fields) // todo: send ids for previously broadcasted txs, not .empty
+              val msg = Message(OrderingBlockAnnouncementMessageSpec, Right(obAnn), None)
+              networkControllerRef ! SendToNetwork(msg, SendToPeers(sendOrderingTo.toSeq))
+            case _ =>
+              log.warn(s"Not found ordering block transactions and/or extension for ${header.id} during broadcasting")
           }
         }
       }
