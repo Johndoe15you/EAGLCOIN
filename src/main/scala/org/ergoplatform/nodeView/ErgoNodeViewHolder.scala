@@ -780,8 +780,11 @@ abstract class ErgoNodeViewHolder[State <: ErgoState[State]](settings: ErgoSetti
       log.info(s"Got locally generated modifier ${lm.blockSection.encodedId} of type ${lm.blockSection.modifierTypeId}")
       pmodModify(lm.blockSection, local = true)
 
-    case LocallyGeneratedOrderingBlock(efb, orderingBlockTransactions) =>
+    case l@LocallyGeneratedOrderingBlock(efb, orderingBlockTransactions) =>
       log.info(s"Got locally generated ordering block ${efb.id}")
+
+      // todo: send directly to ENVS instead of publishing
+      context.system.eventStream.publish(l)
       pmodModify(efb.header, local = true)
       val sectionsToApply = if (settings.nodeSettings.stateType == StateType.Digest) {
         efb.blockSections

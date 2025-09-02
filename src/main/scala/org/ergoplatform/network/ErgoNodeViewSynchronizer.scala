@@ -36,6 +36,7 @@ import org.ergoplatform.modifiers.history.extension.{Extension, ExtensionSeriali
 import org.ergoplatform.modifiers.mempool.ErgoTransaction.WeakId
 import org.ergoplatform.modifiers.transaction.TooHighCostError
 import org.ergoplatform.network.message.inputblocks._
+import org.ergoplatform.nodeView.LocallyGeneratedOrderingBlock
 import org.ergoplatform.serialization.{ErgoSerializer, ManifestSerializer, SubtreeSerializer}
 import org.ergoplatform.subblocks.InputBlockInfo
 import scorex.crypto.authds.avltree.batch.VersionedLDBAVLStorage.splitDigest
@@ -1699,6 +1700,25 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
     // If new enough semantically valid ErgoFullBlock was applied:
     // 1) send inv for block header and all its sections to peers not supporting input/ordering blocks
     // 2) send ordering block announcement to peers supporting input/ordering blocks
+    case LocallyGeneratedOrderingBlock(efb, orderingBlockTransactions) =>
+      val knownPeers = syncTracker.fullInfo()
+      val sendOrderingTo = knownPeers.filter{peerStatus =>
+        if (peerStatus.status == Equal || peerStatus.status == Fork) {
+          peerStatus.peer.peerInfo.exists(_.peerSpec.protocolVersion >= Version.SubblocksVersion)
+        } else {
+          false
+        }
+      }.map(_.peer)
+      val header = efb.header
+      // broadcast subblock announcement
+      val ot = orderingBlockTransactions
+      val ext = efb.extension
+
+      // todo: send ids for previously broadcasted txs, not .empty
+      val obAnn = OrderingBlockAnnouncement(header, ot, Seq.empty, ext.fields)
+      val msg = Message(OrderingBlockAnnouncementMessageSpec, Right(obAnn), None)
+      networkControllerRef ! SendToNetwork(msg, SendToPeers(sendOrderingTo.toSeq))
+
     case FullBlockApplied(header) =>
       if (historyReader.bestHeaderOpt.exists(_.height <= header.height)) {
         val knownPeers = syncTracker.fullInfo()
@@ -1713,10 +1733,10 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
         }
 
         val sendOrderingTo = sendOrderingToStatuses.map(_.peer)
-
         val sendFullTo = sendFullToStatuses.map(_.peer)
 
-        log.debug(s"Sending ordering block ann to $sendOrderingTo , sending old format block sections to $sendFullTo")
+        // todo: make debug
+        log.info(s"Sending ordering block id to $sendOrderingTo , sending old format block sections to $sendFullTo")
 
         // send block sections in full for older peers not supporting sub-blocks
         if (sendFullTo.nonEmpty) {
@@ -1726,17 +1746,8 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
         }
 
         if (sendOrderingTo.nonEmpty) {
-          // broadcast subblock announcement
-          val otOpt = historyReader.getOrderingBlockTransactions(header.id)
-          val extOpt = historyReader.typedModifierById[Extension](header.extensionId)
-          (otOpt, extOpt) match {
-            case (Some(ot), Some(ext)) =>
-              val obAnn = OrderingBlockAnnouncement(header, ot, Seq.empty, ext.fields) // todo: send ids for previously broadcasted txs, not .empty
-              val msg = Message(OrderingBlockAnnouncementMessageSpec, Right(obAnn), None)
-              networkControllerRef ! SendToNetwork(msg, SendToPeers(sendOrderingTo.toSeq))
-            case _ =>
-              log.warn(s"Not found ordering block transactions and/or extension for ${header.id} during broadcasting")
-          }
+          // broadcast ordering block id
+          // todo: broadcast inv
         }
       }
       clearDeclined()
