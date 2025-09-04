@@ -4,7 +4,7 @@ import akka.actor.SupervisorStrategy.{Restart, Stop}
 import akka.actor.{Actor, ActorInitializationException, ActorKilledException, ActorRef, ActorRefFactory, DeathPactException, OneForOneStrategy, Props}
 import org.ergoplatform.modifiers.history.header.{Header, HeaderSerializer}
 import org.ergoplatform.modifiers.mempool.{ErgoTransaction, ErgoTransactionSerializer, UnconfirmedTransaction}
-import org.ergoplatform.modifiers.{BlockSection, ErgoNodeViewModifier, InputBlockTransactionIdsTypeId, InputBlockTypeId, ManifestTypeId, NetworkObjectTypeId, SnapshotsInfoTypeId, UtxoSnapshotChunkTypeId}
+import org.ergoplatform.modifiers.{BlockSection, ErgoNodeViewModifier, InputBlockTransactionIdsTypeId, InputBlockTypeId, ManifestTypeId, NetworkObjectTypeId, OrderingBlockAnnouncementTypeId, SnapshotsInfoTypeId, UtxoSnapshotChunkTypeId}
 import org.ergoplatform.nodeView.history.{ErgoHistory, ErgoHistoryReader, ErgoSyncInfo, ErgoSyncInfoMessageSpec, ErgoSyncInfoV1, ErgoSyncInfoV2}
 import org.ergoplatform.nodeView.ErgoNodeViewHolder.BlockAppliedTransactions
 import org.ergoplatform.nodeView.mempool.{ErgoMemPool, ErgoMemPoolReader}
@@ -1191,6 +1191,13 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
       return // todo: better control flow
     }
 
+    if (invData.typeId == OrderingBlockAnnouncementTypeId.value) {
+      invData.ids.foreach {id =>
+        processOrderingBlockAnnouncementRequest(id, hr, remote)
+      }
+      return // todo: better control flow
+    }
+
     val objs: Seq[(ModifierId, Array[Byte])] = invData.typeId match {
         case typeId: NetworkObjectTypeId.Value if typeId == ErgoTransaction.modifierTypeId =>
           mp.getAll(invData.ids).map { unconfirmedTx =>
@@ -1389,6 +1396,17 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
     }
   }
 
+  def modifiersReqprocessOrderingBlockAnnouncementRequest(id: ModifierId, hr: ErgoHistoryReader, remote: ConnectedPeer): Unit = {
+    hr.getOrderingBlockAnnouncement(id) match {
+      case Some(obAnn) =>
+        log.info(s"Serving ordering block announcement w. $id requested by $remote")
+        val msg = Message(OrderingBlockAnnouncementMessageSpec, Right(obAnn), None)
+        networkControllerRef ! SendToNetwork(msg, SendToPeer(remote))
+      case None =>
+        log.warn(s"Requested by $remote weak ids not found for: $id")
+    }
+  }
+
   def processInputBlockTransactionIds(txIds: InputBlockTransactionIdsData, mp: ErgoMemPoolReader, remote: ConnectedPeer): Unit = {
     val subBlockId = txIds.inputBlockId
     val wIds = txIds.transactionIds
@@ -1483,6 +1501,20 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
                                                remote: ConnectedPeer): Unit = {
 
     if (!hr.contains(oba.header.id)) {
+
+      // todo: check PoW & diff first
+      hr.storeOrderingBlockAnnouncement(oba)
+
+      val peers = syncTracker.statuses.filter { s =>
+        val status = s._2.status
+        // send ordering block announcement to peers on same height and also supporting sub-blocks
+        SubBlocksFilter.condition(s._1) && (status == Equal || status == Fork)
+      }.keys.toSeq
+      // announce id via inv message
+      val invData = InvData(OrderingBlockAnnouncementTypeId.value, Seq(oba.header.id))
+      val msg = Message(InvSpec, Right(invData), None)
+      networkControllerRef ! SendToNetwork(msg, SendToPeers(peers))
+
       // todo: for now, we just check if referenced input block is stored
       // todo: if so, input blocks are used, otherwise, full block is downloaded
       // todo: instead, missing input blocks should be downloaded
@@ -1568,7 +1600,9 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
                 case Some(newPeer) => requestUtxoSetChunk(Digest32 @@ Algos.decode(modifierId).get, newPeer)
                 case None => log.warn(s"No peer found to download UTXO set chunk $modifierId")
               }
-            } else if (modifierTypeId == InputBlockTypeId.value || modifierTypeId == InputBlockTransactionIdsTypeId.value) {
+            } else if (modifierTypeId == InputBlockTypeId.value ||
+                        modifierTypeId == InputBlockTransactionIdsTypeId.value ||
+                        modifierTypeId == OrderingBlockAnnouncementTypeId.value) {
               deliveryTracker.setUnknown(modifierId, modifierTypeId)
               if (modifierTypeId == InputBlockTypeId.value && checksDone < 2) {
                 log.info(s"re-requesting input block $modifierId")
@@ -1679,9 +1713,9 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
 
 
   private def viewHolderEvents(historyReader: ErgoHistory,
-                                 mempoolReader: ErgoMemPool,
-                                 utxoStateReaderOpt: Option[UtxoStateReader],
-                                 blockAppliedTxsCache: FixedSizeApproximateCacheQueue): Receive = {
+                               mempoolReader: ErgoMemPool,
+                               utxoStateReaderOpt: Option[UtxoStateReader],
+                               blockAppliedTxsCache: FixedSizeApproximateCacheQueue): Receive = {
     // Requests BlockSections with `Unknown` status that are defined by block headers but not downloaded yet.
     // Trying to keep size of requested queue equals to `desiredSizeOfExpectingQueue`.
     case CheckModifiersToDownload =>
@@ -1715,7 +1749,10 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
       val ext = efb.extension
 
       // todo: send ids for previously broadcasted txs, not .empty
-      val obAnn = OrderingBlockAnnouncement(header, ot, Seq.empty, ext.fields)
+      val obAnn = {
+        OrderingBlockAnnouncement(header, ot, Seq.empty, ext.fields)
+      }
+      historyReader.storeOrderingBlockAnnouncement(obAnn)
       val msg = Message(OrderingBlockAnnouncementMessageSpec, Right(obAnn), None)
       networkControllerRef ! SendToNetwork(msg, SendToPeers(sendOrderingTo.toSeq))
 

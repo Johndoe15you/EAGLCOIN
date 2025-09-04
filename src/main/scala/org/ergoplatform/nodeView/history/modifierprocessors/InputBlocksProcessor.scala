@@ -3,6 +3,7 @@ package org.ergoplatform.nodeView.history.modifierprocessors
 import com.google.common.cache.CacheBuilder
 import org.ergoplatform.modifiers.history.header.Header
 import org.ergoplatform.modifiers.mempool.ErgoTransaction
+import org.ergoplatform.network.message.inputblocks.OrderingBlockAnnouncement
 import org.ergoplatform.nodeView.history.ErgoHistoryReader
 import org.ergoplatform.nodeView.state.ErgoState
 import org.ergoplatform.subblocks.InputBlockInfo
@@ -508,6 +509,20 @@ trait InputBlocksProcessor extends ScorexLogging {
       ids.map(transactionsCache.getIfPresent)
     }
   }
+
+  // todo: pruning
+  private val orderingBlockAnnouncements = mutable.Map[ModifierId, OrderingBlockAnnouncement]()
+
+  def storeOrderingBlockAnnouncement(announcement: OrderingBlockAnnouncement): Unit = {
+    val id = announcement.header.id
+    orderingBlockAnnouncements.put(id, announcement)
+  }
+
+  def getOrderingBlockAnnouncement(id: ModifierId): Option[OrderingBlockAnnouncement] = {
+    orderingBlockAnnouncements.get(id)
+  }
+
+
 
   /**
     * @param sbId
