@@ -1396,7 +1396,7 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
     }
   }
 
-  def modifiersReqprocessOrderingBlockAnnouncementRequest(id: ModifierId, hr: ErgoHistoryReader, remote: ConnectedPeer): Unit = {
+  def processOrderingBlockAnnouncementRequest(id: ModifierId, hr: ErgoHistoryReader, remote: ConnectedPeer): Unit = {
     hr.getOrderingBlockAnnouncement(id) match {
       case Some(obAnn) =>
         log.info(s"Serving ordering block announcement w. $id requested by $remote")
