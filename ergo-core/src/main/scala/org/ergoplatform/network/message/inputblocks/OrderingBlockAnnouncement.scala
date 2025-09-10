@@ -1,5 +1,6 @@
 package org.ergoplatform.network.message.inputblocks
 
+import org.ergoplatform.mining.AutolykosPowScheme
 import org.ergoplatform.modifiers.history.header.Header
 import org.ergoplatform.modifiers.mempool.ErgoTransaction
 import scorex.util.ModifierId
@@ -14,4 +15,11 @@ import scorex.util.ModifierId
 case class OrderingBlockAnnouncement(header: Header,
                                      nonBroadcastedTransactions: Seq[ErgoTransaction],
                                      broadcastedTransactionIds: Seq[ModifierId],
-                                     extensionFields: Seq[(Array[Byte], Array[Byte])])
+                                     extensionFields: Seq[(Array[Byte], Array[Byte])]) {
+
+  def valid(powScheme: AutolykosPowScheme): Boolean = {
+    // todo: check extension ?
+    // todo: check diff
+    powScheme.validate(header).isSuccess
+  }
+}

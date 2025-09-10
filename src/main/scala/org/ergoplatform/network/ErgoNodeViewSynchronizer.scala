@@ -1502,9 +1502,14 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
 
     if (!hr.contains(oba.header.id)) {
 
-      // todo: check PoW & diff first
+      if (!oba.valid(settings.chainSettings.powScheme)) {
+        // todo : penalize peer
+        return
+      }
+
       hr.storeOrderingBlockAnnouncement(oba)
 
+      // Send ordering block announcement to peers supporting sub-blocks and having equal or forked status
       val peers = syncTracker.statuses.filter { s =>
         val status = s._2.status
         // send ordering block announcement to peers on same height and also supporting sub-blocks
