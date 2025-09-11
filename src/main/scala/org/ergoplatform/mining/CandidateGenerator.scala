@@ -25,7 +25,7 @@ import org.ergoplatform.settings.{Algos, ErgoSettings, ErgoValidationSettingsUpd
 import org.ergoplatform.subblocks.InputBlockInfo
 import org.ergoplatform.validation.SoftFieldsAccessError
 import org.ergoplatform.wallet.interpreter.ErgoInterpreter
-import org.ergoplatform.{AutolykosSolution, ErgoBox, ErgoBoxCandidate, ErgoTreePredef, Input, InputSolutionFound, OrderingSolutionFound, SolutionFound, SubBlockAlgos}
+import org.ergoplatform.{AutolykosSolution, ErgoBox, ErgoBoxCandidate, ErgoTreePredef, Input, InputSolutionFound, OrderingSolutionFound, SolutionFound}
 import scorex.crypto.authds.LeafData
 import scorex.crypto.authds.merkle.BatchMerkleProof
 import scorex.crypto.hash.Digest32
@@ -210,7 +210,7 @@ class CandidateGenerator(
             }
           case _: InputSolutionFound =>
             val (sbi, sbt) = completeInputBlock(state.cache.get.candidateBlock, solution)
-            if (SubBlockAlgos.powScheme.checkInputBlockPoW(sbi.header)) { // check PoW only
+            if (ergoSettings.chainSettings.powScheme.checkInputBlockPoW(sbi.header)) { // check PoW only
               // todo: finish input block mining API
               log.info(s"Input-block ${sbi.id} mined @ height ${sbi.header.height}!")
               sendInputToNodeView(sbi, sbt)
@@ -220,7 +220,7 @@ class CandidateGenerator(
               log.warn(s"Removing candidate due to invalid input block")
               context.become(initialized(state.copy(cache = None)))
               StatusReply.error(
-                new Exception(s"Invalid input block! PoW valid: ${SubBlockAlgos.powScheme.checkInputBlockPoW(sbi.header)}")
+                new Exception(s"Invalid input block! PoW valid: ${ergoSettings.chainSettings.powScheme.checkInputBlockPoW(sbi.header)}")
               )
             }
         }

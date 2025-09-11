@@ -1,6 +1,5 @@
 package org.ergoplatform
 
-import org.ergoplatform.mining.AutolykosPowScheme
 import org.ergoplatform.settings.Parameters
 
 /**
@@ -16,10 +15,7 @@ import org.ergoplatform.settings.Parameters
 object SubBlockAlgos {
 
   // sub blocks per block, adjustable via miners voting
-  // todo: likely we need to update rule exMatchParameters (#409) to add new parameter to vote
-  val subsPerBlock = Parameters.SubsPerBlockDefault
-
-  lazy val powScheme = new AutolykosPowScheme(32, 26)
+  val subsPerBlock: Int = Parameters.SubsPerBlockDefault
 
 }
 
