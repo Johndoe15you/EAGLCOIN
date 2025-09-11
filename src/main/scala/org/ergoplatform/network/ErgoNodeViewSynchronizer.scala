@@ -1372,7 +1372,7 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
       case Some(sbi) =>
 
         // todo: make it debug before release
-        log.info(s"Serving input-block data for ${subBlockId} requested by $remote")
+        log.info(s"Serving input-block data for $subBlockId requested by $remote")
 
         val msg = Message(InputBlockMessageSpec, Right(sbi), None)
         networkControllerRef ! SendToNetwork(msg, SendToPeer(remote))
@@ -1437,8 +1437,6 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
     }
   }
 
-
-  // todo: send transactions? or transaction ids? or switch from one option to another depending on message size ?
   def processInputBlockTransactionsRequest(req: InputBlockTransactionsRequest, hr: ErgoHistoryReader, remote: ConnectedPeer): Unit = {
     val subBlockId = req.inputBlockId
 
@@ -2082,3 +2080,5 @@ object ErgoNodeViewSynchronizer {
       ADProofs.modifierTypeId -> ADProofsSerializer,
       ErgoTransaction.modifierTypeId -> ErgoTransactionSerializer)
 }
+
+
