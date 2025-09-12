@@ -1272,9 +1272,7 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
   }
 
   def requestInputBlockTransactionIds(inputBlockInfo: InputBlockInfo, remote: ConnectedPeer): Unit = {
-    deliveryTracker.setRequested(InputBlockTransactionIdsTypeId.value, inputBlockInfo.id, remote) { deliveryCheck =>
-      context.system.scheduler.scheduleOnce(deliveryTimeout, self, deliveryCheck)
-    }
+    // currently we request input block transactions only once // todo: recheck this
     val data = InvData(InputBlockTransactionIdsTypeId.value, Seq(inputBlockInfo.header.id))
     val msg = Message(RequestModifierSpec, Right(data), None)
     networkControllerRef ! SendToNetwork(msg, SendToPeer(remote))
