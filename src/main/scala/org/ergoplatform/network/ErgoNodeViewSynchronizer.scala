@@ -1355,9 +1355,9 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
         // todo: save input block?
 
         // todo: make it debug before release
-        log.info(s"On processing $subBlockId, downloading new ordering block $orderingId from $remote")
+        log.info(s"On processing $subBlockId, downloading its parent and unknown ordering block $orderingId from $remote")
 
-        requestBlockSection(Header.modifierTypeId, Seq(orderingId), remote, 0)
+        requestBlockSection(Header.modifierTypeId, Seq(orderingId), remote)
       } else {
         log.info(s"Got sub-block for height ${subBlockHeader.height}, while height of our best full-block is ${hr.fullBlockHeight} : ${subBlockHeader.id}")
         // just ignore the subblock
