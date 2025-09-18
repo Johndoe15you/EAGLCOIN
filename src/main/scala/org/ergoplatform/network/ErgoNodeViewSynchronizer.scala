@@ -1502,7 +1502,7 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
     if (!hr.contains(oba.header.id)) {
 
       if (!oba.valid(settings.chainSettings.powScheme)) {
-        // todo : penalize peer
+        penalizeMisbehavingPeer(remote)
         return
       }
 
