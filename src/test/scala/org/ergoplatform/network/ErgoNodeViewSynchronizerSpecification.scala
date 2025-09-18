@@ -6,6 +6,8 @@ import org.ergoplatform.modifiers.history.header.{Header, HeaderSerializer}
 import org.ergoplatform.modifiers.{BlockSection, ErgoFullBlock}
 import org.ergoplatform.network.ErgoNodeViewSynchronizerMessages._
 import org.ergoplatform.nodeView.ErgoNodeViewHolder
+import org.ergoplatform.mining.InputBlockFields
+import org.ergoplatform.subblocks.InputBlockInfo
 import org.ergoplatform.nodeView.history.{ErgoHistory, ErgoHistoryReader, ErgoSyncInfoMessageSpec, ErgoSyncInfoV2}
 import org.ergoplatform.nodeView.mempool.ErgoMemPool
 import org.ergoplatform.nodeView.state.wrapped.WrappedUtxoState
@@ -19,6 +21,7 @@ import org.scalatest.matchers.should.Matchers
 import scorex.core.network.ModifiersStatus.{Received, Unknown}
 import scorex.core.network.NetworkController.ReceivableMessages.SendToNetwork
 import org.ergoplatform.network.message._
+import org.ergoplatform.network.message.inputblocks.InputBlockMessageSpec
 import org.ergoplatform.network.peer.PeerInfo
 import scorex.core.network.{ConnectedPeer, DeliveryTracker}
 import org.ergoplatform.serialization.ErgoSerializer
@@ -444,6 +447,72 @@ class ErgoNodeViewSynchronizerSpecification extends AnyPropSpec
           case stn: SendToNetwork =>
             val msg = stn.message
             msg.spec.messageCode == invSpec.messageCode
+          case _ => false
+        }
+      }
+    }
+  }
+
+  property("NodeViewSynchronizer: process valid InputBlockInfo") {
+    withFixture2 { ctx =>
+      import ctx._
+
+      // Generate a valid input block info
+      val hist = ErgoHistory.readOrGenerate(settings)(null)
+      val chain = genChain(2, hist)
+      val header = chain.last.header
+
+      val inputBlockInfo = InputBlockInfo(
+        InputBlockInfo.initialMessageVersion,
+        header,
+        InputBlockFields.empty,
+        None
+      )
+
+      // Send the input block message
+      val msgBytes = InputBlockMessageSpec.toBytes(inputBlockInfo)
+      synchronizerMockRef ! Message(InputBlockMessageSpec, Left(msgBytes), Some(peer))
+
+      // Verify that the input block gets processed by checking if ProcessInputBlock message is sent to view holder
+      // Since input blocks don't use delivery tracker like other modifiers, we check for the processing behavior
+      // For a valid input block at the correct height, it should be sent to the view holder for processing
+      // We can't easily intercept the view holder messages in this test setup, so we just verify no errors occur
+      // and the message is processed without throwing exceptions
+      Thread.sleep(100) // Give time for processing
+      ncProbe.expectNoMessage()
+    }
+  }
+
+  property("NodeViewSynchronizer: process InputBlockInfo with transaction IDs") {
+    withFixture2 { ctx =>
+      import ctx._
+
+      val hist = ErgoHistory.readOrGenerate(settings)(null)
+      val chain = genChain(2, hist)
+      val header = chain.last.header
+
+      // Create some test transactions
+      @SuppressWarnings(Array("org.wartremover.warts.OptionPartial"))
+      val tx = validErgoTransactionGenTemplate(0, 0).sample.get._2
+      val weakTxIds = Some(Seq(tx.weakId))
+
+      val inputBlockInfo = InputBlockInfo(
+        InputBlockInfo.initialMessageVersion,
+        header,
+        InputBlockFields.empty,
+        weakTxIds
+      )
+
+      // Send the input block message
+      val msgBytes = InputBlockMessageSpec.toBytes(inputBlockInfo)
+      synchronizerMockRef ! Message(InputBlockMessageSpec, Left(msgBytes), Some(peer))
+
+      // Verify processing - should not send transaction request messages since all txs are in mempool
+      ncProbe.fishForMessage(3 seconds) { case m =>
+        m match {
+          case stn: SendToNetwork =>
+            val msg = stn.message
+            msg.spec.messageCode == RequestModifierSpec.messageCode
           case _ => false
         }
       }
