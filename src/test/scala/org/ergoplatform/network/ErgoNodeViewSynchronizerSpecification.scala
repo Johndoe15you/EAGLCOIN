@@ -479,7 +479,7 @@ class ErgoNodeViewSynchronizerSpecification extends AnyPropSpec
       // We can't easily intercept the view holder messages in this test setup, so we just verify no errors occur
       // and the message is processed without throwing exceptions
       Thread.sleep(100) // Give time for processing
-      // Test passes if no exceptions are thrown during processing
+      ncProbe.expectNoMessage()
     }
   }
 
