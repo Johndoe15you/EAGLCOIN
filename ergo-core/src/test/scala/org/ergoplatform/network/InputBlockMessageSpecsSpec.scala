@@ -130,4 +130,120 @@ class InputBlockMessageSpecsSpec extends ErgoCorePropertyTest with Serialization
       recovered.txIds shouldEqual emptyRequest.txIds
     }
   }
+
+  property("InputBlock hardcoded test vectors") {
+    // Test InputBlockTransactionIdsData with various scenarios
+    val blockId = modifierIdGen.sample.get
+    
+    // Empty transaction IDs
+    val emptyTxIdsData = InputBlockTransactionIdsData(blockId, Seq.empty)
+    val emptyTxIdsBytes = inputBlockTransactionIdsMessageSpec.toBytes(emptyTxIdsData)
+    val emptyTxIdsRecovered = inputBlockTransactionIdsMessageSpec.parseBytes(emptyTxIdsBytes)
+    
+    emptyTxIdsRecovered.inputBlockId shouldEqual emptyTxIdsData.inputBlockId
+    emptyTxIdsRecovered.transactionIds shouldBe empty
+
+    // Single transaction ID
+    val singleTxId = Array.fill(ErgoTransaction.WeakIdLength)(1.toByte)
+    val singleTxIdsData = InputBlockTransactionIdsData(blockId, Seq(singleTxId))
+    val singleTxIdsBytes = inputBlockTransactionIdsMessageSpec.toBytes(singleTxIdsData)
+    val singleTxIdsRecovered = inputBlockTransactionIdsMessageSpec.parseBytes(singleTxIdsBytes)
+    
+    singleTxIdsRecovered.inputBlockId shouldEqual singleTxIdsData.inputBlockId
+    singleTxIdsRecovered.transactionIds.map(_.toSeq) shouldEqual singleTxIdsData.transactionIds.map(_.toSeq)
+
+    // Multiple transaction IDs
+    val multipleTxIds = Seq(
+      Array.fill(ErgoTransaction.WeakIdLength)(1.toByte),
+      Array.fill(ErgoTransaction.WeakIdLength)(2.toByte),
+      Array.fill(ErgoTransaction.WeakIdLength)(3.toByte)
+    )
+    val multipleTxIdsData = InputBlockTransactionIdsData(blockId, multipleTxIds)
+    val multipleTxIdsBytes = inputBlockTransactionIdsMessageSpec.toBytes(multipleTxIdsData)
+    val multipleTxIdsRecovered = inputBlockTransactionIdsMessageSpec.parseBytes(multipleTxIdsBytes)
+    
+    multipleTxIdsRecovered.inputBlockId shouldEqual multipleTxIdsData.inputBlockId
+    multipleTxIdsRecovered.transactionIds.map(_.toSeq) shouldEqual multipleTxIdsData.transactionIds.map(_.toSeq)
+
+    // Test InputBlockTransactionsRequest scenarios
+    // Empty request
+    val emptyRequest = InputBlockTransactionsRequest(blockId, Seq.empty)
+    val emptyRequestBytes = inputBlockTransactionsRequestMessageSpec.toBytes(emptyRequest)
+    val emptyRequestRecovered = inputBlockTransactionsRequestMessageSpec.parseBytes(emptyRequestBytes)
+    
+    emptyRequestRecovered.inputBlockId shouldEqual emptyRequest.inputBlockId
+    emptyRequestRecovered.txIds shouldBe empty
+
+    // Single transaction ID request
+    val singleRequest = InputBlockTransactionsRequest(blockId, Seq(singleTxId))
+    val singleRequestBytes = inputBlockTransactionsRequestMessageSpec.toBytes(singleRequest)
+    val singleRequestRecovered = inputBlockTransactionsRequestMessageSpec.parseBytes(singleRequestBytes)
+    
+    singleRequestRecovered.inputBlockId shouldEqual singleRequest.inputBlockId
+    singleRequestRecovered.txIds.map(_.toSeq) shouldEqual singleRequest.txIds.map(_.toSeq)
+
+    // Multiple transaction IDs request
+    val multipleRequest = InputBlockTransactionsRequest(blockId, multipleTxIds)
+    val multipleRequestBytes = inputBlockTransactionsRequestMessageSpec.toBytes(multipleRequest)
+    val multipleRequestRecovered = inputBlockTransactionsRequestMessageSpec.parseBytes(multipleRequestBytes)
+    
+    multipleRequestRecovered.inputBlockId shouldEqual multipleRequest.inputBlockId
+    multipleRequestRecovered.txIds.map(_.toSeq) shouldEqual multipleRequest.txIds.map(_.toSeq)
+
+    // Test InputBlockTransactionsData scenarios
+    val transaction = invalidErgoTransactionGen.sample.get
+    
+    // Empty transactions
+    val emptyTransactionsData = InputBlockTransactionsData(blockId, Seq.empty)
+    val emptyTransactionsBytes = inputBlockTransactionsMessageSpec.toBytes(emptyTransactionsData)
+    val emptyTransactionsRecovered = inputBlockTransactionsMessageSpec.parseBytes(emptyTransactionsBytes)
+    
+    emptyTransactionsRecovered.inputBlockId shouldEqual emptyTransactionsData.inputBlockId
+    emptyTransactionsRecovered.transactions shouldBe empty
+
+    // Single transaction
+    val singleTransactionData = InputBlockTransactionsData(blockId, Seq(transaction))
+    val singleTransactionBytes = inputBlockTransactionsMessageSpec.toBytes(singleTransactionData)
+    val singleTransactionRecovered = inputBlockTransactionsMessageSpec.parseBytes(singleTransactionBytes)
+    
+    singleTransactionRecovered.inputBlockId shouldEqual singleTransactionData.inputBlockId
+    singleTransactionRecovered.transactions shouldEqual singleTransactionData.transactions
+
+    // Verify serialized bytes have expected structure and size relationships
+    emptyTxIdsBytes should not be empty
+    singleTxIdsBytes.length should be > emptyTxIdsBytes.length
+    multipleTxIdsBytes.length should be > singleTxIdsBytes.length
+    
+    emptyRequestBytes should not be empty
+    singleRequestBytes.length should be > emptyRequestBytes.length
+    multipleRequestBytes.length should be > singleRequestBytes.length
+    
+    emptyTransactionsBytes should not be empty
+    singleTransactionBytes.length should be > emptyTransactionsBytes.length
+
+    // Test roundtrip consistency
+    val emptyTxIdsBytes2 = inputBlockTransactionIdsMessageSpec.toBytes(emptyTxIdsData)
+    emptyTxIdsBytes shouldEqual emptyTxIdsBytes2
+    
+    val emptyRequestBytes2 = inputBlockTransactionsRequestMessageSpec.toBytes(emptyRequest)
+    emptyRequestBytes shouldEqual emptyRequestBytes2
+
+    // Test edge case: maximum allowed transaction IDs (within reasonable limits)
+    val maxTxIds = Seq.fill(10)(Array.fill(ErgoTransaction.WeakIdLength)(255.toByte))
+    val maxTxIdsData = InputBlockTransactionIdsData(blockId, maxTxIds)
+    val maxTxIdsBytes = inputBlockTransactionIdsMessageSpec.toBytes(maxTxIdsData)
+    val maxTxIdsRecovered = inputBlockTransactionIdsMessageSpec.parseBytes(maxTxIdsBytes)
+    
+    maxTxIdsRecovered.inputBlockId shouldEqual maxTxIdsData.inputBlockId
+    maxTxIdsRecovered.transactionIds.map(_.toSeq) shouldEqual maxTxIdsData.transactionIds.map(_.toSeq)
+
+    // Test edge case: transaction IDs with all zeros
+    val zeroTxId = Array.fill(ErgoTransaction.WeakIdLength)(0.toByte)
+    val zeroTxIdsData = InputBlockTransactionIdsData(blockId, Seq(zeroTxId))
+    val zeroTxIdsBytes = inputBlockTransactionIdsMessageSpec.toBytes(zeroTxIdsData)
+    val zeroTxIdsRecovered = inputBlockTransactionIdsMessageSpec.parseBytes(zeroTxIdsBytes)
+    
+    zeroTxIdsRecovered.inputBlockId shouldEqual zeroTxIdsData.inputBlockId
+    zeroTxIdsRecovered.transactionIds.map(_.toSeq) shouldEqual zeroTxIdsData.transactionIds.map(_.toSeq)
+  }
 }
