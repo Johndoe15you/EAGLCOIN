@@ -1499,6 +1499,9 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
                                                hr: ErgoHistoryReader,
                                                remote: ConnectedPeer): Unit = {
 
+    //todo : make debug
+    log.info(s"Processing ordering block announcement for ${oba.header.id}")
+
     if (!hr.contains(oba.header.id)) {
 
       if (!oba.valid(settings.chainSettings.powScheme)) {
@@ -1524,6 +1527,8 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
       // todo: instead, missing input blocks should be downloaded
 
       val prevInputBlockIdOpt = oba.extensionFields.find(_._1.sameElements(PrevInputBlockIdKey))
+
+      log.info(s"On processing ordering block ${oba.header.id}, it is last input block ${prevInputBlockIdOpt}")
 
       val inputBlockStored = prevInputBlockIdOpt.map { t =>
         hr.getInputBlockTransactions(bytesToId(t._2)).isDefined
@@ -1740,7 +1745,7 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
     // 2) send ordering block announcement to peers supporting input/ordering blocks
     case LocallyGeneratedOrderingBlock(efb, orderingBlockTransactions) =>
       val knownPeers = syncTracker.fullInfo()
-      val sendOrderingTo = knownPeers.filter{peerStatus =>
+      val sendOrderingTo = knownPeers.filter { peerStatus =>
         if (peerStatus.status == Equal || peerStatus.status == Fork) {
           peerStatus.peer.peerInfo.exists(_.peerSpec.protocolVersion >= Version.SubblocksVersion)
         } else {
