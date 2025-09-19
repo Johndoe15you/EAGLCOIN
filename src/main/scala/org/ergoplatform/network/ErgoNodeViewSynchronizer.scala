@@ -278,6 +278,7 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
     context.system.eventStream.subscribe(self, classOf[DownloadInputBlock])
     context.system.eventStream.subscribe(self, classOf[DownloadInputBlockTransactions])
     context.system.eventStream.subscribe(self, classOf[NewBestInputBlock])
+    context.system.eventStream.subscribe(self, classOf[LocallyGeneratedOrderingBlock])
 
     context.system.scheduler.scheduleAtFixedRate(toDownloadCheckInterval, toDownloadCheckInterval, self, CheckModifiersToDownload)
 
@@ -1756,6 +1757,9 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
       // broadcast subblock announcement
       val ot = orderingBlockTransactions
       val ext = efb.extension
+
+      //todo: make debug before release
+      log.info(s"Sending locally generated ordering block ${efb.header.id} to ${sendOrderingTo.size} peers")
 
       // todo: send ids for previously broadcasted txs, not .empty
       val obAnn = {
