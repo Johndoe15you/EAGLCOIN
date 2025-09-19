@@ -8,6 +8,9 @@ devnet
 .ensime_cache/
 scorex.yaml
 
+# AI agent files
+.crush
+
 # scala build folders
 target
 

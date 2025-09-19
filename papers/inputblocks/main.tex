@@ -1,0 +1,300 @@
+\documentclass{llncs}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{color}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.95,0.95,0.92}
+
+\lstdefinestyle{mystyle}{
+    backgroundcolor=\color{backcolour},   
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{magenta},
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codepurple},
+    basicstyle=\ttfamily\footnotesize,
+    breakatwhitespace=false,         
+    breaklines=true,                 
+    captionpos=b,                    
+    keepspaces=true,                 
+    numbers=left,                    
+    numbersep=5pt,                  
+    showspaces=false,                
+    showstringspaces=false,
+    showtabs=false,                  
+    tabsize=2
+}
+
+\lstset{style=mystyle}
+
+\newcommand{\Ergo}{\textsf{Ergo}}
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\todo}[1]{{\color{red}TODO: #1}}
+
+\begin{document}
+
+\title{Input Blocks: Fast Transaction Propagation and Confirmation in Ergo}
+
+\author{Alexander Chepurnoy (kushti) \and Ergo Core Developers}
+\institute{Ergo Platform, https://ergoplatform.org}
+
+\maketitle
+
+\begin{abstract}
+This paper presents the design and implementation of Input Blocks in Ergo, a novel blockchain architecture that separates transaction processing from block ordering to achieve faster transaction confirmations and improved network throughput. The system introduces two types of blocks: \emph{Input Blocks} for fast transaction processing and \emph{Ordering Blocks} for final consensus, maintaining backward compatibility through a soft-fork approach. This architecture enables sub-minute initial confirmations, reduces network bandwidth usage, and improves scalability without compromising security or decentralization.
+\end{abstract}
+
+\keywords{Blockchain, Scalability, Transaction Throughput, Proof-of-Work, Ergo Platform}
+
+\section{Introduction}
+
+Blockchain scalability remains a fundamental challenge in cryptocurrency design. Ergo's current architecture, with a 2-minute average block time, creates significant confirmation latency and network bandwidth bottlenecks during block propagation. The high variance in block times (often exceeding 10 minutes) further degrades user experience, particularly for time-sensitive applications like payments and decentralized exchanges.
+
+\subsection{Motivation}
+
+The primary limitations of the current Ergo architecture include:
+
+\begin{itemize}
+\item \textbf{Confirmation Latency}: 2-minute average block time creates user-facing delays
+\item \textbf{Network Bottlenecks}: Full block propagation consumes significant bandwidth
+\item \textbf{Time Variance}: Block time distribution leads to unpredictable confirmations
+\item \textbf{Inefficient Propagation}: Transactions and blocks share the same propagation channel
+\end{itemize}
+
+\subsection{Solution Overview}
+
+The Input Blocks architecture addresses these limitations through:
+
+\begin{itemize}
+\item \textbf{Dual Blockchain Structure}: Separation of transaction processing (Input Blocks) from consensus finalization (Ordering Blocks)
+\item \textbf{Soft-fork Compatibility}: Gradual deployment without chain splits
+\item \textbf{Backward Compatibility}: Existing nodes continue to function normally
+\item \textbf{Performance Optimization}: 64x more frequent "confirmations" via Input Blocks
+\end{itemize}
+
+\section{Architectural Overview}
+
+\subsection{Dual Blockchain Structure}
+
+The Input Blocks architecture introduces a two-tier blockchain structure:
+
+\begin{align*}
+\text{Ordering Block} \rightarrow \text{Input Block} \rightarrow \text{Input Block} \rightarrow \text{Input Block} \rightarrow \text{Ordering Block}
+\end{align*}
+
+\subsection{Block Types and Properties}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lcc}
+\hline
+\textbf{Property} & \textbf{Input Blocks} & \textbf{Ordering Blocks} \\
+\hline
+PoW Target & $T/64$ & $T$ \\
+Frequency & 64x more frequent & Standard \\
+Finality & Provisional & Final \\
+Transaction Types & First-class only & All types \\
+Miner Rewards & Fees + Storage rent & Emission + Fees \\
+\hline
+\end{tabular}
+\caption{Comparison of Input Blocks and Ordering Blocks}
+\end{table}
+
+\section{Technical Implementation}
+
+\subsection{Proof-of-Work Modifications}
+
+The Proof-of-Work system is extended to support two difficulty targets:
+
+\begin{lstlisting}[language=Scala,caption=Input Block PoW Validation]
+def checkInputBlockPoW(header: Header): Boolean = {
+  hash(header) < Target / 64  // 64x easier than ordering blocks
+}
+\end{lstlisting}
+
+Ordering blocks maintain the traditional PoW requirement:
+\begin{lstlisting}[language=Scala,caption=Ordering Block PoW Validation]
+def checkOrderingBlockPoW(header: Header): Boolean = {
+  hash(header) < Target  // Traditional PoW requirement
+}
+\end{lstlisting}
+
+\subsection{Network Protocol Extensions}
+
+The P2P network protocol is extended with new message types:
+
+\begin{itemize}
+\item \code{InputBlockMessageSpec} (code: 100) - Sub-block announcements
+\item \code{InputBlockTransactionIdsMessageSpec} - Transaction ID lists
+\item \code{InputBlockTransactionsMessageSpec} - Actual transaction data
+\item \code{InputBlockTransactionsRequest} - Transaction requests
+\item \code{OrderingBlockAnnouncement} - Ordering block notifications
+\end{itemize}
+
+\subsection{Data Structures}
+
+\begin{lstlisting}[language=Scala,caption=Input Block Data Structures]
+case class InputBlockInfo(
+  version: Byte,
+  header: Header,
+  inputBlockFields: InputBlockFields,
+  weakTxIds: Option[Seq[ErgoTransaction.WeakId]]
+)
+
+class InputBlockFields(
+  prevInputBlockId: Option[Array[Byte]],
+  transactionsDigest: Digest32,
+  prevTransactionsDigest: Digest32,
+  inputBlockFieldsProof: BatchMerkleProof[Digest32]
+)
+\end{lstlisting}
+
+\section{Transaction Processing}
+
+\subsection{Transaction Classification}
+
+Transactions are classified into two categories based on their validation requirements:
+
+\subsubsection{First-class Transactions (99\%)}
+\begin{itemize}
+\item Validation outcome independent of block context
+\item Can only be included in input blocks
+\item Examples: Simple transfers, most smart contracts
+\end{itemize}
+
+\subsubsection{Second-class Transactions}
+\begin{itemize}
+\item Validation depends on block context (timestamp, miner pubkey)
+\item Can be included in both input and ordering blocks
+\item Examples: Emission contracts, time-dependent contracts
+\end{itemize}
+
+\subsection{Merkle Tree Structure}
+
+Ordering blocks include extension fields for input block validation:
+
+\begin{itemize}
+\item \code{E1}: Digest of new first-class transactions since last input block
+\item \code{E2}: Digest of first-class transactions since last ordering block
+\item \code{E3}: Reference to last input block
+\end{itemize}
+
+\section{Network Propagation Protocol}
+
+\subsection{Announcement Phase}
+
+\begin{enumerate}
+\item Miner generates input block
+\item Sends \code{InputBlockMessage} to peers
+\item Message contains header, Merkle proofs, and weak transaction IDs
+\item Peers propagate until first external announcement received
+\end{enumerate}
+
+\subsection{Data Retrieval Phase}
+
+\begin{enumerate}
+\item Peer receives announcement
+\item Immediately requests transactions via \code{InputBlockTransactionsRequest}
+\item Validates transactions against Merkle proofs
+\item Applies transactions to mempool/state
+\end{enumerate}
+
+\subsection{Ordering Block Finalization}
+
+\begin{enumerate}
+\item Miner generates ordering block
+\item Includes digests of all input block transactions
+\item Finalizes the chain of input blocks
+\item Provides canonical ordering
+\end{enumerate}
+
+\section{Security Considerations}
+
+\subsection{Consensus Security}
+
+\begin{itemize}
+\item Input blocks cannot finalize chain state
+\item Only ordering blocks provide finality
+\item 51\% attack resistance maintained
+\item Soft-fork activation requires 90\% hashrate
+\end{itemize}
+
+\subsection{Network Security}
+
+\begin{itemize}
+\item Spam protection through penalty system
+\item Double-spending prevention via Merkle proofs
+\item Eclipse attack resistance through peer validation
+\end{itemize}
+
+\subsection{Economic Security}
+
+\begin{itemize}
+\item Fee market remains functional
+\item Miner incentives aligned with network health
+\item No inflation changes required
+\end{itemize}
+
+\section{Performance Evaluation}
+
+\subsection{Theoretical Improvements}
+
+\begin{itemize}
+\item \textbf{64x more frequent confirmations} via input blocks
+\item \textbf{Reduced network bandwidth} usage through incremental updates
+\item \textbf{Lower latency} for transaction inclusion
+\item \textbf{Improved throughput} for first-class transactions
+\end{itemize}
+
+\subsection{Expected Impact}
+
+\begin{itemize}
+\item Sub-minute initial confirmations
+\item Better user experience for payments
+\item Improved DeFi and trading applications
+\item Enhanced scalability without consensus changes
+\end{itemize}
+
+\section{Implementation Status}
+
+\subsection{Completed Components}
+
+\begin{itemize}
+\item Input block data structures (\code{InputBlockInfo}, \code{InputBlockFields})
+\item P2P message specifications
+\item PoW validation for input blocks
+\item Network message handlers
+\item Input block processor framework
+\end{itemize}
+
+\subsection{Pending Components}
+
+\begin{itemize}
+\item Transaction classification engine
+\item Merkle proof generation/validation
+\item Fee script modifications
+\item Comprehensive testing suite
+\item Soft-fork activation mechanism
+\end{itemize}
+
+\section{Conclusion}
+
+The Input Blocks implementation represents a significant advancement in Ergo's scalability and user experience without compromising security or decentralization. By separating transaction processing from consensus finalization, this architecture enables faster confirmations, improved throughput, and better network efficiency while maintaining full backward compatibility.
+
+The soft-fork compatible approach ensures smooth deployment, and the innovative use of Merkle proofs and transaction classification maintains the security properties that make Ergo a robust platform for contractual money. This implementation positions Ergo at the forefront of scalable blockchain solutions while preserving its commitment to decentralization and innovative smart contract capabilities.
+
+\section*{Acknowledgments}
+
+The authors would like to thank the Ergo community and contributors for their support and feedback during the development of this architecture. Special thanks to the researchers whose work inspired this approach, particularly the Bitcoin-NG, Prism, and Tailstorm projects.
+
+\bibliographystyle{splncs04}
+\bibliography{references}
+
+\end{document}

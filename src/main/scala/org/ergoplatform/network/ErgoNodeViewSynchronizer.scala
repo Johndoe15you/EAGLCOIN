@@ -278,6 +278,7 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
     context.system.eventStream.subscribe(self, classOf[DownloadInputBlock])
     context.system.eventStream.subscribe(self, classOf[DownloadInputBlockTransactions])
     context.system.eventStream.subscribe(self, classOf[NewBestInputBlock])
+    context.system.eventStream.subscribe(self, classOf[LocallyGeneratedOrderingBlock])
 
     context.system.scheduler.scheduleAtFixedRate(toDownloadCheckInterval, toDownloadCheckInterval, self, CheckModifiersToDownload)
 
@@ -1499,10 +1500,13 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
                                                hr: ErgoHistoryReader,
                                                remote: ConnectedPeer): Unit = {
 
+    //todo : make debug
+    log.info(s"Processing ordering block announcement for ${oba.header.id}")
+
     if (!hr.contains(oba.header.id)) {
 
       if (!oba.valid(settings.chainSettings.powScheme)) {
-        // todo : penalize peer
+        penalizeMisbehavingPeer(remote)
         return
       }
 
@@ -1524,6 +1528,8 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
       // todo: instead, missing input blocks should be downloaded
 
       val prevInputBlockIdOpt = oba.extensionFields.find(_._1.sameElements(PrevInputBlockIdKey))
+
+      log.info(s"On processing ordering block ${oba.header.id}, it is last input block ${prevInputBlockIdOpt}")
 
       val inputBlockStored = prevInputBlockIdOpt.map { t =>
         hr.getInputBlockTransactions(bytesToId(t._2)).isDefined
@@ -1740,7 +1746,7 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
     // 2) send ordering block announcement to peers supporting input/ordering blocks
     case LocallyGeneratedOrderingBlock(efb, orderingBlockTransactions) =>
       val knownPeers = syncTracker.fullInfo()
-      val sendOrderingTo = knownPeers.filter{peerStatus =>
+      val sendOrderingTo = knownPeers.filter { peerStatus =>
         if (peerStatus.status == Equal || peerStatus.status == Fork) {
           peerStatus.peer.peerInfo.exists(_.peerSpec.protocolVersion >= Version.SubblocksVersion)
         } else {
@@ -1751,6 +1757,9 @@ class ErgoNodeViewSynchronizer(networkControllerRef: ActorRef,
       // broadcast subblock announcement
       val ot = orderingBlockTransactions
       val ext = efb.extension
+
+      //todo: make debug before release
+      log.info(s"Sending locally generated ordering block ${efb.header.id} to ${sendOrderingTo.size} peers")
 
       // todo: send ids for previously broadcasted txs, not .empty
       val obAnn = {
