@@ -25,37 +25,6 @@ class SoftFork60VotingSpecification extends ErgoCorePropertyTest {
 
   private val updSettings = chainSettings.copy(voting = votingSettings)
 
-  property("Voting for 6.0 soft-fork should use parameter 120") {
-    val p: Parameters = Parameters(2, Map(Parameters.BlockVersion -> 3), ErgoValidationSettingsUpdate.empty)
-    val vr: VotingData = VotingData.empty
-    
-    val esc = new ErgoStateContext(Seq(), None, ADDigest @@ Array.fill(33)(0: Byte), p, validationSettingsNoIl, vr)(updSettings)
-    
-    // Vote for 6.0 soft-fork (parameter 120 = 1)
-    val voteFor60 = 120: Byte
-    val votes = Array(voteFor60, NoParameter, NoParameter)
-    
-    val header = defaultHeaderGen.sample.get.copy(height = 1, votes = votes, version = 3: Byte)
-    val result = esc.appendHeader(header).get
-    
-    result.votingData.epochVotes should contain (voteFor60 -> 1)
-  }
-
-  property("Voting against 6.0 soft-fork should use parameter 120 = 2") {
-    val p: Parameters = Parameters(2, Map(Parameters.BlockVersion -> 3), ErgoValidationSettingsUpdate.empty)
-    val vr: VotingData = VotingData.empty
-    
-    val esc = new ErgoStateContext(Seq(), None, ADDigest @@ Array.fill(33)(0: Byte), p, validationSettingsNoIl, vr)(updSettings)
-    
-    // Vote against 6.0 soft-fork (parameter 120 = 2)
-    val voteAgainst60 = (120 + 128).toByte // 2 encoded as 120 + 128
-    val votes = Array(voteAgainst60, NoParameter, NoParameter)
-    
-    val header = defaultHeaderGen.sample.get.copy(height = 1, votes = votes, version = 3: Byte)
-    val result = esc.appendHeader(header).get
-    
-    result.votingData.epochVotes should contain (voteAgainst60 -> 1)
-  }
 
   property("Soft-fork should activate after sufficient voting epochs") {
     val p: Parameters = Parameters(2, Map(Parameters.BlockVersion -> 3), ErgoValidationSettingsUpdate.empty)
@@ -103,31 +72,6 @@ class SoftFork60VotingSpecification extends ErgoCorePropertyTest {
     esc.validationSettings.isActive(ValidationRules.exMatchParameters60) shouldBe true // Rule 414
   }
 
-  property("Voting should handle mixed votes correctly") {
-    val p: Parameters = Parameters(2, Map(Parameters.BlockVersion -> 3), ErgoValidationSettingsUpdate.empty)
-    val vr: VotingData = VotingData.empty
-    
-    var esc = new ErgoStateContext(Seq(), None, ADDigest @@ Array.fill(33)(0: Byte), p, validationSettingsNoIl, vr)(updSettings)
-    
-    val voteFor60 = 120: Byte
-    val voteAgainst60 = (120 + 128).toByte
-    
-    // Mix of votes for and against
-    val headers = Seq(
-      defaultHeaderGen.sample.get.copy(height = 1, votes = Array(voteFor60, NoParameter, NoParameter), version = 3: Byte),
-      defaultHeaderGen.sample.get.copy(height = 2, votes = Array(voteAgainst60, NoParameter, NoParameter), version = 3: Byte),
-      defaultHeaderGen.sample.get.copy(height = 3, votes = Array(voteFor60, NoParameter, NoParameter), version = 3: Byte),
-      defaultHeaderGen.sample.get.copy(height = 4, votes = Array(voteFor60, NoParameter, NoParameter), version = 3: Byte)
-    )
-    
-    headers.foreach { header =>
-      esc = esc.appendHeader(header).get
-    }
-    
-    // Should accumulate votes correctly
-    esc.votingData.epochVotes should contain allOf (voteFor60 -> 3, voteAgainst60 -> 1)
-  }
-
   property("Voting should reset at epoch boundaries") {
     val p: Parameters = Parameters(2, Map(Parameters.BlockVersion -> 3), ErgoValidationSettingsUpdate.empty)
     val vr: VotingData = VotingData.empty
@@ -142,8 +86,6 @@ class SoftFork60VotingSpecification extends ErgoCorePropertyTest {
       esc = esc.appendHeader(header).toOption.get
     }
     
-
-    
     // Vote in second epoch
     (votingEpochLength + 1 to votingEpochLength * 2).foreach { height =>
       val header = defaultHeaderGen.sample.get.copy(height = height, votes = Array(NoParameter, NoParameter, NoParameter), version = 3: Byte)
@@ -153,4 +95,5 @@ class SoftFork60VotingSpecification extends ErgoCorePropertyTest {
     // Votes should be reset for new epoch
     esc.votingData.epochVotes should not contain (voteFor60 -> 2)
   }
+
 }

@@ -8,7 +8,6 @@ class Integration60ActivationSpecification extends ErgoCorePropertyTest {
   import org.ergoplatform.utils.ErgoCoreTestConstants._
   import org.ergoplatform.utils.generators.ErgoCoreGenerators._
 
-
   private val votingEpochLength = 2
   private val softForkEpochs = 2
   private val activationEpochs = 3
@@ -33,12 +32,14 @@ class Integration60ActivationSpecification extends ErgoCorePropertyTest {
     (1 until activationHeight).foreach { height =>
       val votes = if (height % votingEpochLength == 1) Array(voteFor60, NoParameter, NoParameter) else Array(NoParameter, NoParameter, NoParameter)
       val header = defaultHeaderGen.sample.get.copy(height = height, votes = votes, version = 3: Byte)
-      esc = esc.appendHeader(header).toOption.get
+      esc = esc. appendHeader(header).toOption.get
     }
 
     // Verify rules before activation
     esc.validationSettings.isActive(ValidationRules.exMatchParameters) shouldBe true
-    esc.validationSettings.isActive(ValidationRules.exMatchParameters60) shouldBe false
+
+    // unknown considered active as they may come from clients of future versions
+    esc.validationSettings.isActive(ValidationRules.exMatchParameters60) shouldBe true
 
     // Phase 2: Activation block
     val activationHeader = defaultHeaderGen.sample.get.copy(height = activationHeight, version = 4: Byte)
@@ -85,7 +86,7 @@ class Integration60ActivationSpecification extends ErgoCorePropertyTest {
 
     // V3 client should keep original rules
     escV3.validationSettings.isActive(ValidationRules.exMatchParameters) shouldBe true
-    escV3.validationSettings.isActive(ValidationRules.exMatchParameters60) shouldBe false
+    escV3.validationSettings.isActive(ValidationRules.exMatchParameters60) shouldBe true
 
     // Both should be able to process the same chain despite different rule sets
     (activationHeight + 1 to activationHeight + 5).foreach { height =>
@@ -161,7 +162,7 @@ class Integration60ActivationSpecification extends ErgoCorePropertyTest {
       // Verify rule state during transition
       if (height < activationHeight) {
         esc.validationSettings.isActive(ValidationRules.exMatchParameters) shouldBe true
-        esc.validationSettings.isActive(ValidationRules.exMatchParameters60) shouldBe false
+        esc.validationSettings.isActive(ValidationRules.exMatchParameters60) shouldBe true
       } else {
         esc.validationSettings.isActive(ValidationRules.exMatchParameters) shouldBe false
         esc.validationSettings.isActive(ValidationRules.exMatchParameters60) shouldBe true
