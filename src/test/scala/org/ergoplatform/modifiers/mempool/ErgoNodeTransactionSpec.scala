@@ -1,6 +1,7 @@
 package org.ergoplatform.modifiers.mempool
 
 import org.ergoplatform.ErgoBox.{R4, TokenId}
+import org.ergoplatform.modifiers.NetworkObjectTypeId
 import org.ergoplatform.nodeView.state.{ErgoStateContext, VotingData}
 import org.ergoplatform.settings._
 import org.ergoplatform.utils.{ErgoCompilerHelpers, ErgoCorePropertyTest, ErgoStateContextHelpers}
@@ -12,6 +13,7 @@ import org.ergoplatform.nodeView.ErgoContext
 import org.ergoplatform.sdk.wallet.protocol.context.TransactionContext
 import org.ergoplatform.settings.Parameters.MaxBlockCostIncrease
 import org.ergoplatform.settings.ValidationRules.{bsBlockTransactionsCost, txAssetsInOneBox}
+import org.ergoplatform.validation.InvalidModifier
 import org.ergoplatform.wallet.boxes.{ErgoBoxAssetExtractor, ErgoBoxSerializer}
 import org.ergoplatform.wallet.interpreter.TransactionHintsBag
 import org.ergoplatform.wallet.protocol.context.InputContext
@@ -41,6 +43,13 @@ class ErgoNodeTransactionSpec extends ErgoCorePropertyTest with ErgoCompilerHelp
 
   private val emptyModifierId: ModifierId = bytesToId(Array.fill(32)(0.toByte))
 
+  def errorMessage(id: Short, details: String, modifierId: ModifierId, modifierTypeId: NetworkObjectTypeId.Value): String = {
+    ValidationRules.rulesSpec(id)
+      .invalidMod(InvalidModifier(details, modifierId, modifierTypeId))
+      .errors
+      .last
+      .message
+  }
 
   private def checkTx(from: IndexedSeq[ErgoBox], tx: ErgoTransaction): Try[Int] = {
     tx.statelessValidity().flatMap(_ => tx.statefulValidity(from, emptyDataBoxes, emptyStateContext))
@@ -141,7 +150,7 @@ class ErgoNodeTransactionSpec extends ErgoCorePropertyTest with ErgoCompilerHelp
         val txFailure = tx.statefulValidity(boxes, IndexedSeq.empty, ctx3)
         txFailure.isSuccess shouldBe false
         val cause = txFailure.toEither.left.get.getMessage
-        val expectedMessage = ValidationRules.errorMessage(ValidationRules.txMonotonicHeight, "", emptyModifierId, ErgoTransaction.modifierTypeId)
+        val expectedMessage = errorMessage(ValidationRules.txMonotonicHeight, "", emptyModifierId, ErgoTransaction.modifierTypeId)
         cause should startWith(expectedMessage)
       }
     }
@@ -244,7 +253,7 @@ class ErgoNodeTransactionSpec extends ErgoCorePropertyTest with ErgoCompilerHelp
       val validity = tx.statefulValidity(from, emptyDataBoxes, emptyStateContext)
       validity.isSuccess shouldBe false
       val e = validity.failed.get
-      e.getMessage should startWith(ValidationRules.errorMessage(ValidationRules.txScriptValidation, "", emptyModifierId, ErgoTransaction.modifierTypeId))
+      e.getMessage should startWith(errorMessage(ValidationRules.txScriptValidation, "", emptyModifierId, ErgoTransaction.modifierTypeId))
     }
   }
 
@@ -321,7 +330,7 @@ class ErgoNodeTransactionSpec extends ErgoCorePropertyTest with ErgoCompilerHelp
     }
     val txMod = tx.copy(inputs = inputsPointers, outputCandidates = out)
     val validFailure = txMod.statefulValidity(in, emptyDataBoxes, emptyStateContext)
-    validFailure.failed.get.getMessage should startWith(ValidationRules.errorMessage(txAssetsInOneBox, "", emptyModifierId, ErgoTransaction.modifierTypeId).take(30))
+    validFailure.failed.get.getMessage should startWith(errorMessage(txAssetsInOneBox, "", emptyModifierId, ErgoTransaction.modifierTypeId).take(30))
   }
 
   property("transaction with too many inputs should be rejected") {
@@ -351,7 +360,7 @@ class ErgoNodeTransactionSpec extends ErgoCorePropertyTest with ErgoCompilerHelp
     assert(time0 <= Timeout)
 
     val cause = validity.failed.get.getMessage
-    cause should startWith(ValidationRules.errorMessage(bsBlockTransactionsCost, "", emptyModifierId, ErgoTransaction.modifierTypeId).take(30))
+    cause should startWith(errorMessage(bsBlockTransactionsCost, "", emptyModifierId, ErgoTransaction.modifierTypeId).take(30))
 
     //check that spam transaction validation with no cost limit is indeed taking too much time
     import Parameters._
