@@ -44,6 +44,8 @@ object ErgoWalletActorMessages {
    */
   final case class ScanOffChain(tx: ErgoTransaction)
 
+  final case class ScanInputBlock(txs: Seq[ErgoTransaction])
+
   /**
    * Command to scan a block
    *

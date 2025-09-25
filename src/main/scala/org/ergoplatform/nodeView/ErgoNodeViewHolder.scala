@@ -350,6 +350,11 @@ abstract class ErgoNodeViewHolder[State <: ErgoState[State]](settings: ErgoSetti
                                             local: Boolean): Unit = {
     // apply input block transactions
     val newBestInputBlocks = history().applyInputBlockTransactions(inputBlockId, transactions, minimalState())
+
+    // todo: process all the newBestInputBlocks, not just one
+    val newVault = vault().scanInputBlock(transactions)
+    updateNodeView(updatedVault = Some(newVault))
+
     newBestInputBlocks.foreach { id =>
       log.debug(s"New input-block with transactions found: $id")
       context.system.eventStream.publish(NewBestInputBlock(Some(id), local))

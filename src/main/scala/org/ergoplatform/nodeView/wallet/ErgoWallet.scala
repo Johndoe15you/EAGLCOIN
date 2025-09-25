@@ -46,6 +46,11 @@ class ErgoWallet(historyReader: ErgoHistoryReader, settings: ErgoSettings, param
     this
   }
 
+  def scanInputBlock(txs: Seq[ErgoTransaction]): ErgoWallet = {
+    walletActor ! ScanInputBlock(txs)
+    this
+  }
+
   def scanPersistent(modifier: BlockSection): ErgoWallet = {
     modifier match {
       case fb: ErgoFullBlock =>
