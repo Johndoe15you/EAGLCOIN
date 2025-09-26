@@ -231,6 +231,12 @@ class ErgoWalletActor(settings: ErgoSettings,
       )
       context.become(loadedWallet(newState))
 
+    case ScanInputBlock(txs) =>
+      // todo: more efficient processing
+      txs.foreach{tx =>
+        self ! ScanOffChain(tx)
+      }
+
     // rescan=true means we serve a user request for rescan from arbitrary height
     case ScanInThePast(blockHeight, rescan) =>
       val nextBlockHeight = state.expectedNextBlockHeight(blockHeight, settings.nodeSettings.isFullBlocksPruned)
