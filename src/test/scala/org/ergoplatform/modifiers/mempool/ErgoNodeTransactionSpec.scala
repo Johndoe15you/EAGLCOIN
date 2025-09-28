@@ -595,4 +595,78 @@ class ErgoNodeTransactionSpec extends ErgoCorePropertyTest with ErgoCompilerHelp
     }
   }
 
+  property("6.0 transaction serialization compatibility") {
+    // Test that transactions with 6.0 features can be serialized and deserialized correctly
+    // using versioned serializers when appropriate block versions are used
+    
+    val protocolVersion = 4.toByte // 6.0 block version
+    val treeVersion = (protocolVersion - 1).toByte // v3 tree for 6.0
+    val params = new Parameters(0, DevnetLaunchParameters.parametersTable.updated(123, protocolVersion), ErgoValidationSettingsUpdate.empty)
+
+    val stateContext = emptyStateContext.copy(currentParameters = params)(chainSettings)
+    stateContext.blockVersion shouldBe protocolVersion
+
+    // Create a transaction with 6.0 ErgoScript features
+    val ergoTree = compileSourceV6("sigmaProp(Global.serialize(2).size > 0)", treeVersion)
+    
+    val b = new ErgoBox(1000000000L, ergoTree, Colls.emptyColl,
+      Map.empty, ModifierId @@ "c95c2ccf55e03cac6659f71ca4df832d28e2375569cec178dcb17f3e2e5f7742",
+      0, 0)
+
+    val input = Input(b.id, ProverResult(Array.emptyByteArray, ContextExtension.empty))
+    val oc = new ErgoBoxCandidate(b.value, b.ergoTree, b.creationHeight)
+    val tx = new ErgoTransaction(IndexedSeq(input), IndexedSeq.empty, IndexedSeq(oc))
+
+    // Test 1: Basic serialization roundtrip without version context
+    val bytes1 = ErgoTransactionSerializer.toBytes(tx)
+    val txRestored1 = ErgoTransactionSerializer.parseBytes(bytes1)
+    txRestored1 shouldBe tx
+    txRestored1.bytes.sameElements(bytes1) shouldBe true
+
+    // Test 2: Serialization with version context for 6.0 blocks
+    VersionContext.withVersions(protocolVersion, protocolVersion) {
+      val bytes2 = ErgoTransactionSerializer.toBytes(tx)
+      val txRestored2 = ErgoTransactionSerializer.parseBytes(bytes2)
+      txRestored2 shouldBe tx
+      txRestored2.bytes.sameElements(bytes2) shouldBe true
+    }
+
+    // Test 3: Verify transaction remains valid after serialization roundtrip
+    val validityBefore = tx.statefulValidity(IndexedSeq(b), IndexedSeq.empty, stateContext, 0)(defaultProver)
+    validityBefore.isSuccess shouldBe true
+
+    val validityAfter = txRestored1.statefulValidity(IndexedSeq(b), IndexedSeq.empty, stateContext, 0)(defaultProver)
+    validityAfter.isSuccess shouldBe true
+
+    // Test 4: Verify that serialized bytes are the same regardless of version context
+    // (transaction serialization should be version-independent)
+    val bytesNoContext = ErgoTransactionSerializer.toBytes(tx)
+    
+    VersionContext.withVersions(3, 3) { // Pre-6.0 version
+      val bytesPre60 = ErgoTransactionSerializer.toBytes(tx)
+      bytesPre60.sameElements(bytesNoContext) shouldBe true
+    }
+
+    VersionContext.withVersions(4, 4) { // 6.0 version
+      val bytes60 = ErgoTransactionSerializer.toBytes(tx)
+      bytes60.sameElements(bytesNoContext) shouldBe true
+    }
+
+    // Test 5: Test with multiple 6.0 scripts to ensure compatibility
+    v60scripts.foreach { script =>
+      val testErgoTree = compileSourceV6(script, treeVersion)
+      val testBox = new ErgoBox(1000000000L, testErgoTree, Colls.emptyColl,
+        Map.empty, ModifierId @@ "c95c2ccf55e03cac6659f71ca4df832d28e2375569cec178dcb17f3e2e5f7742",
+        0, 0)
+      
+      val testInput = Input(testBox.id, ProverResult(Array.emptyByteArray, ContextExtension.empty))
+      val testOutput = new ErgoBoxCandidate(testBox.value, testErgoTree, testBox.creationHeight)
+      val testTx = new ErgoTransaction(IndexedSeq(testInput), IndexedSeq.empty, IndexedSeq(testOutput))
+
+      val testBytes = ErgoTransactionSerializer.toBytes(testTx)
+      val restoredTestTx = ErgoTransactionSerializer.parseBytes(testBytes)
+      restoredTestTx shouldBe testTx
+    }
+  }
+
 }
