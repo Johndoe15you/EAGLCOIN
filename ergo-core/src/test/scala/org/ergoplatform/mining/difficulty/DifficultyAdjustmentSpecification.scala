@@ -176,6 +176,278 @@ class DifficultyAdjustmentSpecification extends ErgoCorePropertyTest {
     }
   }
 
+  // Edge Case Tests
+  property("calculate() with minimum difficulty values") {
+    forAll(defaultHeaderGen, smallPositiveInt) { (header: Header, epoch) =>
+      whenever(epoch > 1) {
+        val control = new DifficultyAdjustment(chainSettingsMod(1.minute, 4, epoch))
+        val minDifficulty = BigInt(1)
+        val previousHeaders = control.previousHeightsRequiredForRecalculation(epoch * 4 + 1, epoch).map { i =>
+          header.copy(
+            timestamp = header.timestamp + i * 60000,
+            height = i,
+            nBits = DifficultySerializer.encodeCompactBits(minDifficulty)
+          )
+        }
+        
+        val calculatedDifficulty = control.calculate(previousHeaders, epoch)
+        calculatedDifficulty should be >= minDifficulty
+      }
+    }
+  }
+
+  property("calculate() with epoch length = 1") {
+    forAll(defaultHeaderGen, Gen.choose(2, 10)) { (header: Header, useLastEpochs) =>
+      val control = new DifficultyAdjustment(chainSettingsMod(1.minute, useLastEpochs, 1))
+      val previousHeaders = (0 until useLastEpochs + 1).map { i =>
+        header.copy(
+          timestamp = header.timestamp + i * 60000,
+          height = i,
+          nBits = DifficultySerializer.encodeCompactBits(header.requiredDifficulty)
+        )
+      }
+      
+      val calculatedDifficulty = control.calculate(previousHeaders, 1)
+      calculatedDifficulty shouldBe header.requiredDifficulty
+    }
+  }
+
+  property("calculate() with very large epoch lengths") {
+    forAll(defaultHeaderGen, Gen.choose(1000, 10000)) { (header: Header, largeEpoch) =>
+      val control = new DifficultyAdjustment(chainSettingsMod(1.minute, 4, largeEpoch))
+      val previousHeaders = control.previousHeightsRequiredForRecalculation(largeEpoch * 4 + 1, largeEpoch).map { i =>
+        header.copy(
+          timestamp = header.timestamp + i * 60000,
+          height = i,
+          nBits = DifficultySerializer.encodeCompactBits(header.requiredDifficulty)
+        )
+      }
+      
+      val calculatedDifficulty = control.calculate(previousHeaders, largeEpoch)
+      // With constant hashrate, difficulty should remain approximately the same
+      val variation = (calculatedDifficulty - header.requiredDifficulty).abs.doubleValue / header.requiredDifficulty.doubleValue
+      variation should be < 0.01 // Allow 1% variation due to numerical precision
+    }
+  }
+
+  // Boundary Condition Tests
+  property("previousHeightsRequiredForRecalculation() at genesis block") {
+    val control = new DifficultyAdjustment(chainSettingsMod(1.minute, 4, Epoch))
+    control.previousHeightsRequiredForRecalculation(1, Epoch) shouldBe Seq(0)
+  }
+
+  property("calculate() with insufficient history") {
+    forAll(defaultHeaderGen, Gen.choose(1, Epoch - 1)) { (header: Header, height) =>
+      val control = new DifficultyAdjustment(chainSettingsMod(1.minute, 4, Epoch))
+      val previousHeaders = control.previousHeightsRequiredForRecalculation(height, Epoch).map { i =>
+        header.copy(
+          timestamp = header.timestamp + i * 60000,
+          height = i,
+          nBits = DifficultySerializer.encodeCompactBits(header.requiredDifficulty)
+        )
+      }
+      
+      val calculatedDifficulty = control.calculate(previousHeaders, Epoch)
+      calculatedDifficulty shouldBe header.requiredDifficulty
+    }
+  }
+
+  // Network Attack Scenarios
+  property("calculate() with sudden massive hashrate increase") {
+    forAll(defaultHeaderGen, smallPositiveInt) { (header: Header, epoch) =>
+      whenever(epoch > 1) {
+        val control = new DifficultyAdjustment(chainSettingsMod(1.minute, 4, epoch))
+        val previousHeaders = control.previousHeightsRequiredForRecalculation(epoch * 4 + 1, epoch).map { i =>
+          // Simulate sudden 10x hashrate increase by making blocks 10x faster
+          val timeInterval = if (i >= epoch * 3) 6000 else 60000 // Last epoch is 10x faster
+          header.copy(
+            timestamp = header.timestamp + i * timeInterval,
+            height = i,
+            nBits = DifficultySerializer.encodeCompactBits(header.requiredDifficulty)
+          )
+        }
+        
+        val calculatedDifficulty = control.calculate(previousHeaders, epoch)
+        // Difficulty should increase significantly due to faster blocks
+        calculatedDifficulty should be > header.requiredDifficulty
+      }
+    }
+  }
+
+  property("calculate() with time warp attack") {
+    forAll(defaultHeaderGen, smallPositiveInt) { (header: Header, epoch) =>
+      whenever(epoch > 1) {
+        val control = new DifficultyAdjustment(chainSettingsMod(1.minute, 4, epoch))
+        val previousHeaders = control.previousHeightsRequiredForRecalculation(epoch * 4 + 1, epoch).map { i =>
+          // Simulate time warp by making timestamps go backwards
+          val maliciousTimestamp = if (i == epoch * 4) header.timestamp - 1000000 else header.timestamp + i * 60000
+          header.copy(
+            timestamp = maliciousTimestamp,
+            height = i,
+            nBits = DifficultySerializer.encodeCompactBits(header.requiredDifficulty)
+          )
+        }
+        
+        // Should handle timestamp manipulation gracefully
+        Try(control.calculate(previousHeaders, epoch)) shouldBe 'success
+      }
+    }
+  }
+
+  // Real-World Scenario Tests
+  property("calculate() with oscillating hashrate") {
+    forAll(defaultHeaderGen, smallPositiveInt) { (header: Header, epoch) =>
+      whenever(epoch > 1 && header.requiredDifficulty > 1) {
+        val control = new DifficultyAdjustment(chainSettingsMod(1.minute, 4, epoch))
+        val previousHeaders = control.previousHeightsRequiredForRecalculation(epoch * 4 + 1, epoch).map { i =>
+          // Simulate oscillating hashrate: fast, slow, fast, slow
+          val timeMultiplier = if ((i / epoch) % 2 == 0) 0.5 else 2.0
+          header.copy(
+            timestamp = header.timestamp + (i * 60000 * timeMultiplier).toLong,
+            height = i,
+            nBits = DifficultySerializer.encodeCompactBits(header.requiredDifficulty)
+          )
+        }
+        
+        val calculatedDifficulty = control.calculate(previousHeaders, epoch)
+        // Difficulty should adjust to the average hashrate
+        calculatedDifficulty should not be header.requiredDifficulty
+      }
+    }
+  }
+
+  // Algorithm-Specific Tests
+  property("eip37Calculate() with bounds enforcement") {
+    forAll(defaultHeaderGen, smallPositiveInt) { (header: Header, epoch) =>
+      whenever(epoch > 1) {
+        val control = new DifficultyAdjustment(chainSettingsMod(1.minute, 4, epoch))
+        val previousHeaders = control.previousHeightsRequiredForRecalculation(epoch * 4 + 1, epoch).map { i =>
+          header.copy(
+            timestamp = header.timestamp + i * 60000,
+            height = i,
+            nBits = DifficultySerializer.encodeCompactBits(header.requiredDifficulty)
+          )
+        }
+        
+        val lastDifficulty = previousHeaders.last.requiredDifficulty
+        val calculatedDifficulty = control.eip37Calculate(previousHeaders, epoch)
+        
+        // EIP-37 should enforce 50% decrease and 150% increase bounds
+        calculatedDifficulty should be >= lastDifficulty / 2
+        calculatedDifficulty should be <= lastDifficulty * 3 / 2
+      }
+    }
+  }
+
+  property("eip37Calculate() with extreme predictive difficulty") {
+    forAll(defaultHeaderGen, smallPositiveInt) { (header: Header, epoch) =>
+      whenever(epoch > 1) {
+        val control = new DifficultyAdjustment(chainSettingsMod(1.minute, 4, epoch))
+        val previousHeaders = control.previousHeightsRequiredForRecalculation(epoch * 4 + 1, epoch).map { i =>
+          // Create extreme scenario where predictive difficulty would be very high
+          val timeInterval = if (i >= epoch * 3) 1000 else 60000 // Last epoch is 60x faster
+          header.copy(
+            timestamp = header.timestamp + i * timeInterval,
+            height = i,
+            nBits = DifficultySerializer.encodeCompactBits(header.requiredDifficulty)
+          )
+        }
+        
+        val lastDifficulty = previousHeaders.last.requiredDifficulty
+        val calculatedDifficulty = control.eip37Calculate(previousHeaders, epoch)
+        
+        // Even with extreme predictive difficulty, bounds should be enforced
+        calculatedDifficulty should be <= lastDifficulty * 3 / 2
+      }
+    }
+  }
+
+  property("interpolate() accuracy with linear data") {
+    forAll(diffGen, smallPositiveInt) { (baseDiff: BigInt, epoch) =>
+      whenever(epoch > 1 && baseDiff > 0) {
+        val control = new DifficultyAdjustment(chainSettingsMod(1.minute, 4, epoch))
+        
+        // Create linear difficulty progression: diff = baseDiff * (1 + 0.1 * epoch_index)
+        val data = (0 until 5).map { i =>
+          val height = i * epoch
+          val difficulty = baseDiff * (BigInt(10) + BigInt(i)) / 10
+          (height, difficulty)
+        }
+        
+        val interpolated = control.interpolate(data, epoch)
+        val expected = baseDiff * BigInt(14) / 10 // Next point in linear progression
+        
+        val error = (interpolated - expected).abs.doubleValue / expected.doubleValue
+        error should be < 0.1 // Allow 10% error for linear interpolation
+      }
+    }
+  }
+
+  property("serialization round-trip preserves difficulty within precision") {
+    forAll(diffGen) { (difficulty: BigInt) =>
+      whenever(difficulty > 0) {
+        val encoded = DifficultySerializer.encodeCompactBits(difficulty)
+        val decoded = DifficultySerializer.decodeCompactBits(encoded)
+        
+        // Serialization may normalize difficulty, so allow small variation
+        val variation = (decoded - difficulty).abs.doubleValue / difficulty.doubleValue
+        variation should be < 0.01 // Allow 1% variation due to normalization
+      }
+    }
+  }
+
+  // Performance and Stability Tests
+  property("long-chain stability with constant hashrate") {
+    forAll(defaultHeaderGen, Gen.choose(10, 100)) { (header: Header, numEpochs) =>
+      val control = new DifficultyAdjustment(chainSettingsMod(1.minute, 4, Epoch))
+      
+      // Simulate multiple epochs with constant hashrate
+      val difficulties = (0 to numEpochs).map { epochIndex =>
+        val height = epochIndex * Epoch
+        val previousHeaders = control.previousHeightsRequiredForRecalculation(height + 1, Epoch).map { i =>
+          header.copy(
+            timestamp = header.timestamp + i * 60000,
+            height = i,
+            nBits = DifficultySerializer.encodeCompactBits(header.requiredDifficulty)
+          )
+        }
+        control.calculate(previousHeaders, Epoch)
+      }
+      
+      // Difficulty should remain stable with constant hashrate
+      val firstStableDiff = difficulties(5) // Skip initial epochs
+      val lastDiff = difficulties.last
+      val variation = (lastDiff - firstStableDiff).abs.doubleValue / firstStableDiff.doubleValue
+      variation should be < 0.01 // Less than 1% variation
+    }
+  }
+
+  property("rapid hashrate changes response") {
+    forAll(defaultHeaderGen) { (header: Header) =>
+      whenever(header.requiredDifficulty > 1) {
+        val control = new DifficultyAdjustment(chainSettingsMod(1.minute, 4, Epoch))
+        
+        // Simulate rapid hashrate doubling every epoch
+        val difficulties = (0 until 8).map { epochIndex =>
+          val height = epochIndex * Epoch
+          val previousHeaders = control.previousHeightsRequiredForRecalculation(height + 1, Epoch).map { i =>
+            // Each epoch has half the block time of previous epoch
+            val timeMultiplier = Math.pow(0.5, epochIndex - i / Epoch).toFloat
+            header.copy(
+              timestamp = header.timestamp + (i * 60000 * timeMultiplier).toLong,
+              height = i,
+              nBits = DifficultySerializer.encodeCompactBits(header.requiredDifficulty)
+            )
+          }
+          control.calculate(previousHeaders, Epoch)
+        }
+        
+        // Difficulty should increase significantly to match hashrate
+        difficulties.last should not be difficulties.head
+      }
+    }
+  }
+
   def equalsWithPrecision(i: BigInt, j: BigInt): Unit = {
     require((BigDecimal(i - j) / BigDecimal(j)).toDouble < precision, s"$i and $j are too different")
   }
