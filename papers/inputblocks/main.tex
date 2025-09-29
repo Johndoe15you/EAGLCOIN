@@ -40,7 +40,7 @@
 
 \begin{document}
 
-\title{Input Blocks: Fast Transaction Propagation and Confirmation in Ergo}
+\title{Matrix: Splitting Ergo Blocks Into Input and Ordering Blocks For Fast Transaction Propagation and Confirmation}
 
 \author{Alexander Chepurnoy (kushti) \and Ergo Core Developers}
 \institute{Ergo Platform, https://ergoplatform.org}
@@ -48,7 +48,13 @@
 \maketitle
 
 \begin{abstract}
-This paper presents the design and implementation of Input Blocks in Ergo, a novel blockchain architecture that separates transaction processing from block ordering to achieve faster transaction confirmations and improved network throughput. The system introduces two types of blocks: \emph{Input Blocks} for fast transaction processing and \emph{Ordering Blocks} for final consensus, maintaining backward compatibility through a soft-fork approach. This architecture enables sub-minute initial confirmations, reduces network bandwidth usage, and improves scalability without compromising security or decentralization.
+This paper presents the design and implementation of Matrix, a new design where, instead of chain of full-blocks (which is still
+being used for storing blocks beyond last few ones), we have more complex structure with input and ordering blocks in Ergo.
+This novel blockchain architecture separates transaction processing from block ordering to achieve faster transaction confirmations and improved
+network throughput. The system introduces two types of blocks: \emph{Input Blocks} for fast transaction processing
+and \emph{Ordering Blocks} for final consensus, maintaining backward compatibility through a soft-fork approach.
+This architecture enables confirmation time to be in seconds range, reduces network bandwidth usage for blocks propagation, and improves scalability
+without compromising security or decentralization.
 \end{abstract}
 
 \keywords{Blockchain, Scalability, Transaction Throughput, Proof-of-Work, Ergo Platform}

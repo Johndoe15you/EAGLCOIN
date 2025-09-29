@@ -350,6 +350,16 @@ abstract class ErgoNodeViewHolder[State <: ErgoState[State]](settings: ErgoSetti
                                             local: Boolean): Unit = {
     // apply input block transactions
     val newBestInputBlocks = history().applyInputBlockTransactions(inputBlockId, transactions, minimalState())
+
+    // todo: process all the newBestInputBlocks, not just one
+    // clear mempool from input block transactions
+    val updMp = memoryPool().removeWithDoubleSpends(transactions)
+    updateNodeView(updatedMempool = Some(updMp))
+
+    // todo: process all the newBestInputBlocks, not just one
+    val newVault = vault().scanInputBlock(transactions)
+    updateNodeView(updatedVault = Some(newVault))
+
     newBestInputBlocks.foreach { id =>
       log.debug(s"New input-block with transactions found: $id")
       context.system.eventStream.publish(NewBestInputBlock(Some(id), local))
@@ -805,7 +815,12 @@ abstract class ErgoNodeViewHolder[State <: ErgoState[State]](settings: ErgoSetti
         log.error(s"Shouldn't be there: input-block ${subblockInfo.id} generated locally when its parent is not available")
       }
 
-      processInputBlockTransactions(subblockInfo.id, subBlockTransactionsData.transactions, local = true)
+      val inputBlockTxs = subBlockTransactionsData.transactions
+      processInputBlockTransactions(subblockInfo.id, inputBlockTxs, local = true)
+
+      // clear mempool from input block transactions
+      val updMp = memoryPool().removeWithDoubleSpends(inputBlockTxs)
+      updateNodeView(updatedMempool = Some(updMp))
   }
 
   protected def getCurrentInfo: Receive = {

@@ -331,6 +331,7 @@ trait InputBlocksProcessor extends ScorexLogging {
     */
   // todo: use PoEM to store only 2-3 best chains and select best one quickly
   // todo: return input block ids rolled back?
+  // todo: wrap in Try or make sure no exception possible
   def applyInputBlockTransactions(sbId: ModifierId,
                                   transactions: Seq[ErgoTransaction],
                                   state: ErgoState[_]): Seq[ModifierId] = {
@@ -370,7 +371,8 @@ trait InputBlocksProcessor extends ScorexLogging {
               val ibId = currentBestChain(idx)
               val txs = inputBlockTransactions.get(ibId).get
               // removing input-block transactions
-              orderingInputBlocksTransactions.put(orderingId, orderingInputBlocksTransactions.apply(orderingId).filter(id => !txs.contains(id)))
+              val updTxs = orderingInputBlocksTransactions.get(orderingId).getOrElse(Seq.empty).filter(id => !txs.contains(id))
+              orderingInputBlocksTransactions.put(orderingId, updTxs)
             }
 
             if (commonIndex > -1) {
