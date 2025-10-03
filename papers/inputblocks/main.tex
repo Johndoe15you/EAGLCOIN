@@ -65,7 +65,15 @@ Trustless nature of flat peer-to-peer network~\footnote{or more efficient design
 with democratic participation~(ability to run a peer software on commodity hardware with possibility to verify all the historical transactions)
 is the most important property of blockchain, and must be preserved at any cost.
 
-Blockchain scalability remains a fundamental challenge in cryptocurrency design. Ergo's current architecture, with a 2-minute average block time, creates significant confirmation latency and network bandwidth bottlenecks during block propagation. The high variance in block times (often exceeding 10 minutes) further degrades user experience, particularly for time-sensitive applications like payments and decentralized exchanges.
+At the same time, fast transaction propagation and confirmations are becoming attractive properties, allowing for more
+real-time like experience for payments and other financial applications. This is popularized by many financial systems
+today, usually labelled as \"decentralized blockchains\", but in reality having very different topology from peer-to-peer
+network powered by commodity hardware.
+
+In this work we propose a solution, based on notable results in 15 years of blockchain research, which allows to have
+faster transaction propagation and confirmation in flat commodity-hardware powered peer-to-peer networks. The proposed design
+has the same security as original proof-of-work blockhain, while nearly fully utilizing network bandwidth~(and so achieving
+maximum performance possible).
 
 \subsection{Motivation}
 
