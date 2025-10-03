@@ -1127,4 +1127,34 @@ class ErgoWalletSpec extends ErgoCorePropertyTest with WalletTestOps with Eventu
     }
   }
 
+  property("deriveNextKey should not create duplicate addresses") {
+    withFixture { implicit w =>
+      // Get initial addresses
+      val initialAddresses = getPublicKeys
+      initialAddresses.length should be > 0
+      
+      // Derive first new address
+      val firstDerivation = await(wallet.deriveNextKey)
+      firstDerivation.result shouldBe 'success
+      val firstAddress = firstDerivation.result.get._2
+      
+      // Derive second new address
+      val secondDerivation = await(wallet.deriveNextKey)
+      secondDerivation.result shouldBe 'success
+      val secondAddress = secondDerivation.result.get._2
+      
+      // Get all addresses after derivations
+      val allAddresses = getPublicKeys
+      
+      // Check that all addresses are unique (no duplicates)
+      val uniqueAddresses = allAddresses.distinct
+      allAddresses.length shouldEqual uniqueAddresses.length
+      
+      // Verify the specific addresses we derived are present and unique
+      allAddresses should contain (firstAddress)
+      allAddresses should contain (secondAddress)
+      firstAddress should not equal secondAddress
+    }
+  }
+
 }
