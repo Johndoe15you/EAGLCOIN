@@ -685,7 +685,6 @@ class InputBlockProcessorSpecification extends ErgoCorePropertyTest with ErgoCom
     bestChain should contain oneOf (ib1.id, ib2.id)
     bestChain.length shouldBe 1
   }
-  }
 
   property("pruning removes old input blocks when new ordering blocks arrive") {
     val us = UtxoState.fromBoxHolder(BoxHolder(Seq(eb1, eb2)), None, createTempDir, settings, parameters)
