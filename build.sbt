@@ -9,8 +9,8 @@ val scala212 = "2.12.20"
 val scala213 = "2.13.16"
 
 lazy val commonSettings = Seq(
-  organization := "org.ergoplatform",
-  name := "ergo",
+  organization := "org.eagl",
+  name := "eaglcoin-node",
   scalaVersion := scala212,
   // version is set via git tag vX.Y.Z:
   // $ git tag v3.2.0
