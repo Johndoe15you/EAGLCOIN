@@ -6,5 +6,5 @@ object Constants {
   val CoinTicker: String = "EAGL"
   val InitialDifficulty: Long = 1
   val BlockIntervalSeconds: Int = 120
-  val GenesisTimestamp: Long = 0L // epoch start
+  val GenesisTimestamp: Long = 0L
 }
