@@ -2,7 +2,7 @@
 
 EAGLCOIN (**$EAGL**) is a GPU-friendly, ASIC-resistant Proof-of-Work cryptocurrency built for fairness and efficiency.  
 It is a fork of [Ergo](https://github.com/ergoplatform/ergo), adapted to favor low-power GPUs and provide a transparent, decentralized network.
-
+DISCLAIMER: This is still in beta and serves as a test project for middle school. I am only one person, so don't expect anything professional here.
 ---
 
 ## ⚙️ Overview
