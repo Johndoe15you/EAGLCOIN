@@ -1,35 +1,45 @@
 package org.eaglcoin
 
 import akka.actor.ActorSystem
-import org.ergoplatform.nodeView.ErgoNodeViewRef
-import org.ergoplatform.nodeView.wallet.WalletService
-import org.ergoplatform.http.api.{ApiRoutes, ErgoApiModule}
-import org.ergoplatform.settings.ErgoSettings
+import akka.http.scaladsl.Http
+import akka.http.scaladsl.server.Directives._
+import com.typesafe.config.ConfigFactory
 
 object EaglApp {
   def main(args: Array[String]): Unit = {
     println("=== EAGL Node ===")
 
-    // Load settings (reads your application.conf)
-    val settings = ErgoSettings.read(args)
+    // Load your config
+    val conf = ConfigFactory.load()
+    val nodeName = conf.getString("eagl.nodeName")
+    val bindAddress = conf.getString("eagl.bindAddress")
+    val restBind = conf.getString("restApi.bindAddress")
+    val restPort = conf.getInt("restApi.port")
 
-    println(s"Loading config from: ${settings.scorexSettings.configPath}")
-    println(s"Node Name: ${settings.scorexSettings.network.nodeName}")
-    println(s"Bind Address: ${settings.scorexSettings.network.bindAddress}")
+    println(s"Node Name: $nodeName")
+    println(s"Bind Address: $bindAddress")
 
     implicit val system: ActorSystem = ActorSystem("eagl-node")
 
-    // Start node core (ledger + networking)
-    val nodeViewRef = ErgoNodeViewRef(settings)(system)
+    // --- REST routes ---
+    val routes =
+      path("info") {
+        get {
+          complete(s"""
+            {
+              "name": "$nodeName",
+              "bindAddress": "$bindAddress",
+              "restApi": "$restBind:$restPort",
+              "status": "running"
+            }
+          """)
+        }
+      }
 
-    // Start wallet service (required by REST API)
-    val walletService = WalletService(settings)(system)
+    // Start REST API server
+    Http().newServerAt(restBind, restPort).bind(routes)
 
-    // ✅ Start REST API
-    val apiModule = new ErgoApiModule(settings, nodeViewRef, walletService)
-    ApiRoutes.startRestApi(apiModule, settings.scorexSettings.restApi)(system)
-
-    println(s"REST API bound to ${settings.scorexSettings.restApi.bindAddress}:${settings.scorexSettings.restApi.port}")
+    println(s"REST API bound to $restBind:$restPort")
     println("EAGL Node initialized successfully.")
   }
 }
