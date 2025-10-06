@@ -1,110 +1,113 @@
-# EAGLCOIN Testnet Wallet CLI
-# Save as EaglWallet.ps1
+<#
+.SYNOPSIS
+Simple EAGLCOIN testnet wallet manager CLI for PowerShell.
 
-# Helper: JSON file path
-$WalletFile = Join-Path $PSScriptRoot "wallets.json"
-if (-not (Test-Path $WalletFile)) {
-    '{}' | Out-File $WalletFile
-}
+.DESCRIPTION
+Allows creating wallets, listing addresses, and simulating transfers.
+Stores wallet data encrypted in the "wallets" folder.
+This is a simple testnet/playground script—not production-grade.
+#>
 
-function New-Wallet {
-    param (
-        [Parameter(Mandatory)][string]$Name
-    )
+# --- Setup Paths ---
+$WalletFolder = Join-Path $PSScriptRoot "wallets"
+if (-not (Test-Path $WalletFolder)) { New-Item -ItemType Directory -Path $WalletFolder | Out-Null }
+$WalletFile = Join-Path $WalletFolder "wallets.json"
+if (-not (Test-Path $WalletFile)) { '{}' | Out-File $WalletFile }
 
-    # Ask for password twice
-    $pass = Read-Host "Enter password" -AsSecureString
-    $passConfirm = Read-Host "Confirm password" -AsSecureString
-    if (-not ($pass | ConvertFrom-SecureString) -eq ($passConfirm | ConvertFrom-SecureString)) {
-        Write-Host "Passwords do not match!"
-        return
-    }
-
-    # Generate random 32-byte wallet key (dummy key for testnet)
-    $walletKey = New-Object byte[] 32
-    [System.Security.Cryptography.RNGCryptoServiceProvider]::Create().GetBytes($walletKey)
-
-    # AES encryption setup
+# --- Encryption Helpers ---
+function Encrypt-Text([string]$Text, [string]$Password) {
     $aes = [System.Security.Cryptography.Aes]::Create()
-    $aes.KeySize = 256
-    $aes.Mode = 'CBC'
-    $aes.Padding = 'PKCS7'
-
-    # Derive AES key from password
-    $passBytes = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($pass)
-    $passPlain = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($passBytes)
-    [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($passBytes)
-
-    $salt = New-Object byte[] 16
-    [System.Security.Cryptography.RNGCryptoServiceProvider]::Create().GetBytes($salt)
-    $derive = New-Object System.Security.Cryptography.Rfc2898DeriveBytes($passPlain, $salt, 10000)
-    $aes.Key = $derive.GetBytes(32)
-
-    # Random IV
-    $aes.IV = New-Object byte[] 16
-    [System.Security.Cryptography.RNGCryptoServiceProvider]::Create().GetBytes($aes.IV)
-
+    $aes.Key = ([Text.Encoding]::UTF8.GetBytes($Password.PadRight(32)))[0..31]
+    $aes.IV = 0..15 | ForEach-Object {0}
     $encryptor = $aes.CreateEncryptor()
-    $cipher = $encryptor.TransformFinalBlock($walletKey, 0, $walletKey.Length)
-
-    # Load existing wallets
-    $wallets = Get-Content $WalletFile | ConvertFrom-Json
-
-    $wallets.$Name = @{
-        Key = [Convert]::ToBase64String($cipher)
-        IV = [Convert]::ToBase64String($aes.IV)
-        Salt = [Convert]::ToBase64String($salt)
-    }
-
-    # Save wallets
-    $wallets | ConvertTo-Json -Depth 5 | Out-File $WalletFile -Force
-    Write-Host "Wallet '$Name' created successfully."
+    $bytes = [Text.Encoding]::UTF8.GetBytes($Text)
+    $enc = $encryptor.TransformFinalBlock($bytes, 0, $bytes.Length)
+    [Convert]::ToBase64String($enc)
 }
 
-function Show-Wallet {
-    param (
-        [Parameter(Mandatory)][string]$Name
-    )
-
-    $wallets = Get-Content $WalletFile | ConvertFrom-Json
-    if (-not $wallets.$Name) {
-        Write-Host "Wallet '$Name' not found!"
-        return
-    }
-
-    $pass = Read-Host "Enter password for wallet '$Name'" -AsSecureString
-    $passBytes = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($pass)
-    $passPlain = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($passBytes)
-    [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($passBytes)
-
-    $salt = [Convert]::FromBase64String($wallets.$Name.Salt)
+function Decrypt-Text([string]$Encrypted, [string]$Password) {
     $aes = [System.Security.Cryptography.Aes]::Create()
-    $aes.KeySize = 256
-    $aes.Mode = 'CBC'
-    $aes.Padding = 'PKCS7'
-    $derive = New-Object System.Security.Cryptography.Rfc2898DeriveBytes($passPlain, $salt, 10000)
-    $aes.Key = $derive.GetBytes(32)
-    $aes.IV = [Convert]::FromBase64String($wallets.$Name.IV)
-
+    $aes.Key = ([Text.Encoding]::UTF8.GetBytes($Password.PadRight(32)))[0..31]
+    $aes.IV = 0..15 | ForEach-Object {0}
     $decryptor = $aes.CreateDecryptor()
-    $cipher = [Convert]::FromBase64String($wallets.$Name.Key)
-    try {
-        $key = $decryptor.TransformFinalBlock($cipher, 0, $cipher.Length)
-        $keyHex = ($key | ForEach-Object { $_.ToString("x2") }) -join ''
-        Write-Host "Wallet '$Name' key: $keyHex"
-    } catch {
-        Write-Host "Failed to decrypt wallet. Wrong password?"
-    }
+    $bytes = [Convert]::FromBase64String($Encrypted)
+    [Text.Encoding]::UTF8.GetString($decryptor.TransformFinalBlock($bytes,0,$bytes.Length))
 }
 
-# CLI Dispatch
-param (
-    [Parameter(Mandatory)][string]$Command,
-    [string]$Name
-)
+# --- Load Wallets ---
+function Load-Wallets {
+    $json = Get-Content $WalletFile -Raw
+    ConvertFrom-Json $json
+}
 
-switch ($Command.ToLower()) {
-    "new" { New-Wallet -Name $Name }
-    "show" { Show-Wallet -Name $Name }
-    default { Write-Host "Commands: new, show" }
+function Save-Wallets($wallets) {
+    $wallets | ConvertTo-Json | Out-File $WalletFile
+}
+
+# --- Commands ---
+function New-Wallet {
+    param([string]$Name, [string]$Password)
+    $wallets = Load-Wallets
+    if ($wallets.$Name) { Write-Host "Wallet $Name already exists."; return }
+    $privateKey = -join ((65..90) + (97..122) | Get-Random -Count 32 | % {[char]$_})
+    $encKey = Encrypt-Text $privateKey $Password
+    $wallets | Add-Member -MemberType NoteProperty -Name $Name -Value @{ Key = $encKey; Balance = 1000 }
+    Save-Wallets $wallets
+    Write-Host "Wallet '$Name' created with testnet balance 1000."
+}
+
+function Show-Wallets {
+    $wallets = Load-Wallets
+    $wallets.PSObject.Properties.Name | ForEach-Object { Write-Host $_ }
+}
+
+function Send-Tokens {
+    param([string]$From, [string]$To, [int]$Amount, [string]$Password)
+    $wallets = Load-Wallets
+    if (-not $wallets.$From) { Write-Host "Sender wallet not found."; return }
+    if (-not $wallets.$To) { Write-Host "Recipient wallet not found."; return }
+    $key = Decrypt-Text $wallets.$From.Key $Password
+    if (-not $key) { Write-Host "Incorrect password."; return }
+    if ($wallets.$From.Balance -lt $Amount) { Write-Host "Insufficient balance."; return }
+    $wallets.$From.Balance -= $Amount
+    $wallets.$To.Balance += $Amount
+    Save-Wallets $wallets
+    Write-Host "$Amount tokens sent from $From to $To."
+}
+
+function Get-Balance {
+    param([string]$Name, [string]$Password)
+    $wallets = Load-Wallets
+    if (-not $wallets.$Name) { Write-Host "Wallet not found."; return }
+    $key = Decrypt-Text $wallets.$Name.Key $Password
+    if (-not $key) { Write-Host "Incorrect password."; return }
+    Write-Host "Balance of $Name: $($wallets.$Name.Balance)"
+}
+
+# --- CLI ---
+Write-Host "EAGLCOIN CLI - testnet playground"
+while ($true) {
+    $cmd = Read-Host "Enter command (new/show/send/balance/exit)"
+    switch ($cmd) {
+        "new" {
+            $name = Read-Host "Wallet name"
+            $pass = Read-Host "Password"
+            New-Wallet -Name $name -Password $pass
+        }
+        "show" { Show-Wallets }
+        "send" {
+            $from = Read-Host "From wallet"
+            $to = Read-Host "To wallet"
+            $amt = [int](Read-Host "Amount")
+            $pass = Read-Host "Password"
+            Send-Tokens -From $from -To $to -Amount $amt -Password $pass
+        }
+        "balance" {
+            $name = Read-Host "Wallet name"
+            $pass = Read-Host "Password"
+            Get-Balance -Name $name -Password $pass
+        }
+        "exit" { break }
+        default { Write-Host "Unknown command." }
+    }
 }
