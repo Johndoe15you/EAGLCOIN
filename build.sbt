@@ -11,7 +11,7 @@ lazy val root = (project in file("."))
   .settings(
     resolvers ++= Seq(
       "Typesafe Releases" at "https://repo.typesafe.com/typesafe/releases/",
-      Resolver.sonatypeRepo("releases"),
+      Resolver.sonatypeOssRepos("snapshots"),
       "Ergo Maven" at "https://maven.ergoplatform.com/releases"
     ),
 
