@@ -15,7 +15,7 @@ DISCLAIMER: This is still in beta and serves as a test project for middle school
 
 ---
 
-## 🛠️ Build Instructions
+## 🛠️ Build Instructions (disregard as still working out naming conventions, bugs, jdk issues, etc.
 
 ```bash
 # 1. Install dependencies
