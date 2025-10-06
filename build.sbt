@@ -3,13 +3,13 @@ import sbt._
 
 logLevel := Level.Debug
 
-// this values should be in sync with ergo-wallet/build.sbt
+// this values should be in sync with eaglcoin-wallet/build.sbt
 val scala211 = "2.11.12"
 val scala212 = "2.12.20"
 val scala213 = "2.13.16"
 
 lazy val commonSettings = Seq(
-  organization := "org.eagl",
+  organization := "org.eaglplatform",
   name := "eaglcoin-node",
   scalaVersion := scala212,
   // version is set via git tag vX.Y.Z:
@@ -22,7 +22,7 @@ lazy val commonSettings = Seq(
     "Repo for leveldbjni-all" at "https://gitlab.com/api/v4/projects/61211221/packages/maven",
     "Typesafe maven releases" at "https://dl.bintray.com/typesafe/maven-releases/",
     "Sonatype Snapshots" at "https://oss.sonatype.org/content/repositories/snapshots/"),
-  homepage := Some(url("http://ergoplatform.org/")),
+  homepage := Some(url("http://eaglplatform.org/")),
   licenses := Seq("CC0" -> url("https://creativecommons.org/publicdomain/zero/1.0/legalcode")),
   publishTo := {
     val centralSnapshots = "https://central.sonatype.com/repository/maven-snapshots/"
@@ -31,8 +31,8 @@ lazy val commonSettings = Seq(
   },
   scmInfo := Some(
       ScmInfo(
-          url("https://github.com/ergoplatform/ergo"),
-          "scm:git@github.com:ergoplatform/ergo.git"
+          url("https://github.com/Johndoe15you/EAGLCOIN"),
+          "scm:git@github.com:Johndoe15you/EAGLCOIN.git"
       )
   ),
 )
@@ -46,7 +46,7 @@ val akkaHttpVersion = "10.2.4"
 val sigmaStateVersion = "6.0.2"
 val ficusVersion = "1.4.7"
 
-// for testing current sigmastate build (see sigmastate-ergo-it jenkins job)
+// for testing current sigmastate build (see sigmastate-eaglcoin-it jenkins job)
 val effectiveSigmaStateVersion = Option(System.getenv().get("SIGMASTATE_VERSION")).getOrElse(sigmaStateVersion)
 val effectiveSigma = "org.scorexfoundation" %% "sigma-state" % effectiveSigmaStateVersion
 
@@ -108,10 +108,10 @@ val scalacOpts = Seq("-Ywarn-numeric-widen", "-Ywarn-value-discard", "-Ywarn-unu
 
 
 Compile / sourceGenerators += Def.task {
-  val versionFile = (Compile / sourceManaged).value / "org" / "ergoplatform" / "Version.scala"
+  val versionFile = (Compile / sourceManaged).value / "org" / "eaglplatform" / "Version.scala"
   
   IO.write(versionFile,
-    s"""package org.ergoplatform
+    s"""package org.eaglplatform
        |
        |object Version {
        |  val VersionString = "${version.value}"
@@ -120,11 +120,11 @@ Compile / sourceGenerators += Def.task {
   Seq(versionFile)
 }
 
-assembly / mainClass := Some("org.ergoplatform.ErgoApp")
+assembly / mainClass := Some("org.eaglplatform.EaglcoinApp")
 
 assembly / test := {}
 
-assembly / assemblyJarName := s"ergo-${version.value}.jar"
+assembly / assemblyJarName := s"eaglcoin-${version.value}.jar"
 
 assembly / assemblyMergeStrategy := {
   case "logback.xml" => MergeStrategy.last
@@ -165,9 +165,9 @@ bashScriptExtraDefines += """addJava "-Dconfig.file=${app_home}/../conf/local.co
 
 inConfig(Linux)(
   Seq(
-    maintainer := "ergoplatform.org",
-    packageSummary := "Ergo node",
-    packageDescription := "Ergo node"
+    maintainer := "eaglplatform.org",
+    packageSummary := "Eaglcoin node",
+    packageDescription := "Eaglcoin node"
   )
 )
 
@@ -186,11 +186,11 @@ docker / dockerfile := {
 
   new Dockerfile {
     from("openjdk:11-jre-slim")
-    label("ergo-integration-tests", "ergo-integration-tests")
-    add(assembly.value, "/opt/ergo/ergo.jar")
-    add(Seq(configDevNet), "/opt/ergo")
-    add(Seq(configTestNet), "/opt/ergo")
-    add(Seq(configMainNet), "/opt/ergo")
+    label("eaglcoin-integration-tests", "eaglcoin-integration-tests")
+    add(assembly.value, "/opt/eaglcoin/eaglcoin.jar")
+    add(Seq(configDevNet), "/opt/eaglcoin")
+    add(Seq(configTestNet), "/opt/eaglcoin")
+    add(Seq(configMainNet), "/opt/eaglcoin")
   }
 }
 
@@ -245,14 +245,14 @@ lazy val avldb_benchmarks = (project in file("avldb/benchmarks"))
   .dependsOn(avldb)
   .enablePlugins(JmhPlugin)
 
-lazy val ergoCore = (project in file("ergo-core"))
+lazy val eaglcoinCore = (project in file("eaglcoin-core"))
   .disablePlugins(ScapegoatSbtPlugin) // not compatible with crossScalaVersions
   .dependsOn(avldb % "test->test;compile->compile")
-  .dependsOn(ergoWallet % "test->test;compile->compile")
+  .dependsOn(eaglcoinWallet % "test->test;compile->compile")
   .settings(
     crossScalaVersions := Seq(scala213, scalaVersion.value, scala211),
     commonSettings,
-    name := "ergo-core",
+    name := "eaglcoin-core",
     libraryDependencies ++= Seq(
       "com.iheart" %% "ficus" % ficusVersion,
       effectiveSigma,
@@ -263,12 +263,12 @@ lazy val ergoCore = (project in file("ergo-core"))
     Test / parallelExecution := false,
   )
 
-lazy val ergoWallet = (project in file("ergo-wallet"))
+lazy val eaglcoinWallet = (project in file("eaglcoin-wallet"))
   .disablePlugins(ScapegoatSbtPlugin) // not compatible with crossScalaVersions
   .settings(
     crossScalaVersions := Seq(scala213, scalaVersion.value, scala211),
     commonSettings,
-    name := "ergo-wallet",
+    name := "eaglcoin-wallet",
     libraryDependencies ++= Seq(
       effectiveSigma,
       (effectiveSigma % Test).classifier("tests")
@@ -288,10 +288,10 @@ inConfig(It2Test)(Defaults.testSettings ++ Seq(
   scalacOptions ++= Seq("-Xasync")
 ))
 
-lazy val ergo = (project in file("."))
+lazy val eaglcoin = (project in file("."))
   .settings(
     commonSettings,
-    name := "ergo",
+    name := "eaglcoin",
     // set bytecode version to 8 to fix NoSuchMethodError for various ByteBuffer methods
     // see https://github.com/eclipse/jetty.project/issues/3244
     // these options applied only in "compile" task since scalac crashes on scaladoc compilation with "-release 8"
@@ -326,8 +326,8 @@ lazy val ergo = (project in file("."))
       "com.github.ben-manes.caffeine" % "caffeine" % "2.9.3" // use 3.x only for java 11+
     )
   )
-  .dependsOn(ergoCore % "test->test;compile->compile")
-  .dependsOn(ergoWallet % "test->test;compile->compile")
+  .dependsOn(eaglcoinCore % "test->test;compile->compile")
+  .dependsOn(eaglcoinWallet % "test->test;compile->compile")
   .dependsOn(avldb % "test->test;compile->compile")
   .configs(It2Test)
 
