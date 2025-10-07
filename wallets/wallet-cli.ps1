@@ -35,7 +35,7 @@ function List-Wallets {
 
 function Show-Balance { param([string]$Name)
     if (-not $wallets.ContainsKey($Name)) { Write-Host "Wallet '$Name' does not exist."; return }
-    Write-Host "Balance of $Name: $($wallets[$Name].Balance)"
+    Write-Host "Balance of ${Name}: $($wallets[$Name].Balance)"
 }
 
 function Send-Tokens {
