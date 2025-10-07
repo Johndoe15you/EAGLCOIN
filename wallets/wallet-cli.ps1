@@ -44,7 +44,7 @@ function Show-Balance($Name) {
         return
     }
     $balance = $wallets[$Name].Balance
-    Write-Host "Balance of $Name: $balance"
+    Write-Host "Balance of ${Name}: $balance"
 }
 
 function Transfer($From, $Pass, $To, $Amount) {
