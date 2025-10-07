@@ -93,40 +93,71 @@ function Show-Help {
     Write-Host " help                                 - Show this message"
 }
 
-# Interactive loop
+# ---------- Robust interactive loop (replace your old loop) ----------
 Write-Host "EAGLCOIN CLI - Interactive Mode"
-Write-Host "Type 'help' for commands, 'exit' to quit.`n"
+Write-Host "Type 'help' for commands, 'exit' or 'quit' to leave.`n"
 
 while ($true) {
-    $input = Read-Host "EAGL>"
-    if ([string]::IsNullOrWhiteSpace($input)) { continue }
+    $raw = Read-Host "EAGL>"
+    if ([string]::IsNullOrWhiteSpace($raw)) { continue }
+
+    # normalize input
+    $input = $raw.Trim()
+    if ($input.StartsWith(":")) { $input = $input.Substring(1).Trim() }  # allow leading colon like ": help"
 
     $parts = $input -split '\s+'
+    if ($parts.Count -eq 0) { continue }
     $cmd = $parts[0].ToLower()
 
     switch ($cmd) {
-        "help" { Show-Help }
-        "exit" { break }
-        "create" { 
-            if ($parts.Count -ne 3) { Write-Host "Usage: create <WalletName> <Password>"; continue }
-            Create-Wallet $parts[1] $parts[2]
+        "help" {
+            Show-Help
+            continue
         }
-        "list" { List-Wallets }
-        "balance" { 
-            if ($parts.Count -ne 2) { Write-Host "Usage: balance <WalletName>"; continue }
+        "exit" | "quit" | "q" | "bye" {
+            Write-Host "Goodbye!"
+            break
+        }
+        "create" {
+            if ($parts.Count -lt 3) { Write-Host "Usage: create <WalletName> <Password>"; continue }
+            Wallet-Create $parts[1] $parts[2]
+            continue
+        }
+        "list" {
+            Wallet-List
+            continue
+        }
+        "balance" {
+            if ($parts.Count -lt 2) { Write-Host "Usage: balance <WalletName>"; continue }
             Show-Balance $parts[1]
+            continue
         }
-        "transfer" { 
-            if ($parts.Count -ne 5) { Write-Host "Usage: transfer <From> <Password> <To> <Amount>"; continue }
-            Transfer $parts[1] $parts[2] $parts[3] ([int]$parts[4])
+        "transfer" {
+            if ($parts.Count -lt 5) { Write-Host "Usage: transfer <From> <Password> <To> <Amount>"; continue }
+            Wallet-Transfer $parts[1] $parts[2] $parts[3] $parts[4]
+            continue
         }
         "node" {
-            if ($parts.Count -eq 2 -and $parts[1].ToLower() -eq "status") {
-                Node-Status
+            # allow both "node status" and "node" then menu
+            if ($parts.Count -gt 1) {
+                $sub = $parts[1].ToLower()
+                switch ($sub) {
+                    "start"  { Node-Start }
+                    "stop"   { Node-Stop  }
+                    "status" { Node-Status }
+                    default  { Write-Host "Node commands: node start|stop|status" }
+                }
             } else {
-                Write-Host "Node commands: node status"
+                Node-CLI
             }
+            continue
         }
-        default { Write-Host "Unknown command. Type 'help' for commands." }
+        default {
+            Write-Host "Unknown command. Type 'help' for a list of commands."
+        }
     }
 }
+
+# ensure script finishes and returns to caller (safe for dot-sourcing)
+return
+# --------------------------------------------------------------------
