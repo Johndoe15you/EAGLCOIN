@@ -219,12 +219,14 @@ while ($true) {
         "balance" { if ($args.Count -gt 1) { Show-Balance $args[1] } else { Write-Host "Usage: balance [name]" } }
         "list" { List-Wallets }
         "transfer" {
-            if ($args.Count -eq 4) {
-                Transfer $args[1] $args[2] [decimal]$args[3]
-            } else {
-                Write-Host "Usage: transfer [from] [to] [amount]"
-            }
-        }
+    if ($args.Count -eq 4) {
+        $amount = [decimal]($args[3])
+        Transfer $args[1] $args[2] $amount
+    } else {
+        Write-Host "Usage: transfer [from] [to] [amount]"
+    }
+}
+
         "node" {
             if ($args.Count -lt 2) {
                 Write-Host "Usage: node [start|stop|status|mine|mine auto]"
