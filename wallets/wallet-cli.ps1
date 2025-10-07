@@ -1,171 +1,251 @@
-# =========================
-#  EAGLCOIN CLI - PowerShell Edition v2.1
-# =========================
+# ===============================
+# EAGLCOIN CLI - Version 2.0
+# Persistent wallet, blockchain, and threaded mining
+# ===============================
 
-$global:wallets = @{}
-$global:nodeRunning = $false
-$global:mining = $false
+$walletFile = "wallets.json"
+$blockchainFile = "blockchain.json"
+$nodeRunning = $false
+$autoMineJob = $null
+$blockReward = 25
 
-function Create-Wallet($name) {
-    if ($global:wallets.ContainsKey($name)) {
-        Write-Host "Wallet '$name' already exists."
-    } else {
-        $global:wallets[$name] = 100
-        Write-Host "Wallet '$name' created with 100 EAGL."
-    }
+# -------------------------------
+# Load wallets and blockchain
+# -------------------------------
+if (Test-Path $walletFile) {
+    $wallets = Get-Content $walletFile | ConvertFrom-Json
+} else {
+    $wallets = @{}
 }
 
-function Show-Balance($name) {
-    if ($global:wallets.ContainsKey($name)) {
-        Write-Host "Balance of '$name': $($global:wallets[$name]) EAGL"
-    } else {
-        Write-Host "Wallet '$name' not found."
-    }
+if (Test-Path $blockchainFile) {
+    $blockchain = Get-Content $blockchainFile | ConvertFrom-Json
+} else {
+    $blockchain = @()
 }
 
-function Transfer($from, $to, $amount) {
-    if (-not $global:wallets.ContainsKey($from)) { Write-Host "Sender '$from' not found."; return }
-    if (-not $global:wallets.ContainsKey($to)) { Write-Host "Receiver '$to' not found."; return }
+# -------------------------------
+# Save functions
+# -------------------------------
+function Save-Wallets {
+    $wallets | ConvertTo-Json | Set-Content -Encoding UTF8 $walletFile
+}
 
-    try {
-        $amt = [decimal]$amount
-    } catch {
-        Write-Host "Invalid amount format: '$amount'. Please enter a number."
+function Save-Blockchain {
+    $blockchain | ConvertTo-Json | Set-Content -Encoding UTF8 $blockchainFile
+}
+
+# -------------------------------
+# Node control
+# -------------------------------
+function Start-Node {
+    if ($nodeRunning) {
+        Write-Host "Node already running."
         return
     }
-
-    if ($global:wallets[$from] -lt $amt) { Write-Host "Insufficient funds in '$from'."; return }
-
-    $global:wallets[$from] -= $amt
-    $global:wallets[$to] += $amt
-    Write-Host "Transferred $amt EAGL from '$from' to '$to'."
+    $global:nodeRunning = $true
+    Write-Host "Node started. Blockchain synced."
 }
 
-function Start-Node() {
-    if ($global:nodeRunning) {
-        Write-Host "Node is already running."
-    } else {
-        $global:nodeRunning = $true
-        Write-Host "Node started. Blockchain synced."
-    }
-}
-
-function Stop-Node() {
-    if (-not $global:nodeRunning) {
+function Stop-Node {
+    if (-not $nodeRunning) {
         Write-Host "Node is not running."
-    } else {
-        $global:nodeRunning = $false
-        Write-Host "Node stopped."
+        return
     }
+    if ($autoMineJob) {
+        Stop-Job $autoMineJob -ErrorAction SilentlyContinue
+        Remove-Job $autoMineJob -ErrorAction SilentlyContinue
+        $global:autoMineJob = $null
+    }
+    $global:nodeRunning = $false
+    Write-Host "Node stopped."
 }
 
-function Node-Status() {
-    if ($global:nodeRunning) {
+function Node-Status {
+    if ($nodeRunning) {
         Write-Host "Node is running and synced."
     } else {
         Write-Host "Node is not running."
     }
 }
 
+# -------------------------------
+# Wallet management
+# -------------------------------
+function Create-Wallet($name) {
+    if ($wallets.ContainsKey($name)) {
+        Write-Host "Wallet '$name' already exists."
+        return
+    }
+    $wallets[$name] = 100
+    Save-Wallets
+    Write-Host "Wallet '$name' created with 100 EAGL."
+}
+
+function Show-Balance($name) {
+    if (-not $wallets.ContainsKey($name)) {
+        Write-Host "Wallet '$name' not found."
+        return
+    }
+    Write-Host "$name balance: $($wallets[$name]) EAGL"
+}
+
+function List-Wallets {
+    if ($wallets.Count -eq 0) {
+        Write-Host "No wallets found."
+        return
+    }
+    Write-Host "Wallets:"
+    foreach ($key in $wallets.Keys) {
+        Write-Host " - $key : $($wallets[$key]) EAGL"
+    }
+}
+
+# -------------------------------
+# Transactions
+# -------------------------------
+function Transfer($from, $to, [decimal]$amount) {
+    if (-not $wallets.ContainsKey($from)) {
+        Write-Host "Sender '$from' not found."
+        return
+    }
+    if (-not $wallets.ContainsKey($to)) {
+        Write-Host "Receiver '$to' not found."
+        return
+    }
+    if ($wallets[$from] -lt $amount) {
+        Write-Host "Insufficient funds."
+        return
+    }
+    $wallets[$from] -= $amount
+    $wallets[$to] += $amount
+    Save-Wallets
+    Write-Host "Transferred $amount EAGL from '$from' to '$to'."
+}
+
+# -------------------------------
+# Mining
+# -------------------------------
 function Mine-Block($miner) {
-    if (-not $global:wallets.ContainsKey($miner)) {
+    if (-not $wallets.ContainsKey($miner)) {
         Write-Host "Miner wallet '$miner' not found."
         return
     }
 
-    $reward = 25
-    $global:wallets[$miner] += $reward
-    Write-Host "Block mined! '$miner' earned $reward EAGL."
+    $block = [PSCustomObject]@{
+        id         = ($blockchain.Count + 1)
+        miner      = $miner
+        reward     = $blockReward
+        timestamp  = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+    }
+
+    $blockchain += $block
+    $wallets[$miner] += $blockReward
+    Save-Wallets
+    Save-Blockchain
+
+    Write-Host "Block mined! '$miner' earned $blockReward EAGL (Block ID: $($block.id))."
 }
 
-function Mine-Auto($miner) {
-    if (-not $global:wallets.ContainsKey($miner)) {
+function Start-AutoMine($miner) {
+    if (-not $wallets.ContainsKey($miner)) {
         Write-Host "Miner wallet '$miner' not found."
         return
     }
-
-    Write-Host "Auto-mining started for '$miner'. Press Ctrl+C to stop."
-    while ($true) {
-        Mine-Block $miner
-        Start-Sleep -Seconds 5
+    if ($autoMineJob) {
+        Write-Host "Auto-mining already running."
+        return
     }
+
+    Write-Host "Auto-mining started for '$miner'. Type 'node stop' to end."
+
+    $global:autoMineJob = Start-Job -ScriptBlock {
+        param($minerName, $walletFile, $blockchainFile, $reward)
+        while ($true) {
+            Start-Sleep -Seconds 5
+            try {
+                $wallets = Get-Content $walletFile | ConvertFrom-Json
+                $blockchain = Get-Content $blockchainFile | ConvertFrom-Json
+
+                $block = [PSCustomObject]@{
+                    id         = ($blockchain.Count + 1)
+                    miner      = $minerName
+                    reward     = $reward
+                    timestamp  = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+                }
+
+                $blockchain += $block
+                $wallets[$minerName] += $reward
+
+                $wallets | ConvertTo-Json | Set-Content -Encoding UTF8 $walletFile
+                $blockchain | ConvertTo-Json | Set-Content -Encoding UTF8 $blockchainFile
+
+                Write-Output "Block mined! '$minerName' earned $reward EAGL (Block ID: $($block.id))."
+            } catch {
+                Write-Output "Mining error: $_"
+            }
+        }
+    } -ArgumentList $miner, $walletFile, $blockchainFile, $blockReward
 }
 
-function Show-Help() {
-@"
-Commands:
-  create [name]                    - Create new wallet
-  balance [name]                   - Show wallet balance
-  transfer [from] [to] [amount]    - Send EAGL
-  node start                       - Start node
-  node stop                        - Stop node
-  node status                      - Node status
-  node mine [miner]                - Mine one block
-  node mine auto [miner]           - Auto-mine every 5s
-  list                             - Show all wallets
-  exit                             - Quit
-"@
-}
-
-# =========================
-# Interactive CLI Loop
-# =========================
-
+# -------------------------------
+# CLI Loop
+# -------------------------------
 Write-Host "EAGLCOIN CLI - Interactive Mode"
-Write-Host "Type 'help' for commands, 'exit' to quit."
+Write-Host "Type 'help' for commands, 'exit' to quit.`n"
 
 while ($true) {
     $input = Read-Host "EAGL>"
-    $parts = $input -split '\s+'
-    $command = $parts[0].ToLower()
-    $args = $parts[1..($parts.Length - 1)]
+    if ($input -eq "exit") { Stop-Node; break }
 
-    switch ($command) {
-        "help" { Show-Help }
-        "create" {
-            if ($args.Count -lt 1) { Write-Host "Usage: create [name]" }
-            else { Create-Wallet $args[0] }
+    $args = $input.Split(" ")
+    $cmd = $args[0]
+
+    switch ($cmd) {
+        "help" {
+            Write-Host "Commands:"
+            Write-Host "  create [name]                    - Create new wallet"
+            Write-Host "  balance [name]                   - Show wallet balance"
+            Write-Host "  transfer [from] [to] [amount]    - Send EAGL"
+            Write-Host "  node start                       - Start node"
+            Write-Host "  node stop                        - Stop node"
+            Write-Host "  node status                      - Node status"
+            Write-Host "  node mine [miner]                - Mine one block"
+            Write-Host "  node mine auto [miner]           - Auto-mine every 5s"
+            Write-Host "  list                             - Show all wallets"
+            Write-Host "  exit                             - Quit"
         }
-        "balance" {
-            if ($args.Count -lt 1) { Write-Host "Usage: balance [name]" }
-            else { Show-Balance $args[0] }
-        }
+        "create" { if ($args.Count -gt 1) { Create-Wallet $args[1] } else { Write-Host "Usage: create [name]" } }
+        "balance" { if ($args.Count -gt 1) { Show-Balance $args[1] } else { Write-Host "Usage: balance [name]" } }
+        "list" { List-Wallets }
         "transfer" {
-            if ($args.Count -lt 3) { Write-Host "Usage: transfer [from] [to] [amount]" }
-            else { Transfer $args[0] $args[1] $args[2] }
-        }
-        "list" {
-            if ($global:wallets.Count -eq 0) {
-                Write-Host "No wallets found."
+            if ($args.Count -eq 4) {
+                Transfer $args[1] $args[2] [decimal]$args[3]
             } else {
-                Write-Host "Wallets:"
-                foreach ($k in $global:wallets.Keys) {
-                    Write-Host "  $k -> $($global:wallets[$k]) EAGL"
-                }
+                Write-Host "Usage: transfer [from] [to] [amount]"
             }
         }
         "node" {
-            if ($args.Count -lt 1) {
-                Write-Host "Usage: node [start|stop|status|mine <miner>|mine auto <miner>]"
-            } else {
-                switch ($args[0].ToLower()) {
-                    "start" { Start-Node }
-                    "stop" { Stop-Node }
-                    "status" { Node-Status }
-                    "mine" {
-                        if ($args.Count -ge 3 -and $args[1].ToLower() -eq "auto") {
-                            Mine-Auto $args[2]
-                        } elseif ($args.Count -ge 2) {
-                            Mine-Block $args[1]
-                        } else {
-                            Write-Host "Usage: node mine [miner] or node mine auto [miner]"
-                        }
+            if ($args.Count -lt 2) {
+                Write-Host "Usage: node [start|stop|status|mine|mine auto]"
+                continue
+            }
+            switch ($args[1]) {
+                "start" { Start-Node }
+                "stop" { Stop-Node }
+                "status" { Node-Status }
+                "mine" {
+                    if ($args.Count -eq 3) {
+                        Mine-Block $args[2]
+                    } elseif ($args.Count -eq 4 -and $args[2] -eq "auto") {
+                        Start-AutoMine $args[3]
+                    } else {
+                        Write-Host "Usage: node mine [miner] or node mine auto [miner]"
                     }
-                    default { Write-Host "Unknown node command." }
                 }
+                default { Write-Host "Unknown node command." }
             }
         }
-        "exit" { Write-Host "Exiting EAGL CLI..."; break }
-        default { Write-Host "Unknown command. Type 'help'." }
+        default { if ($cmd -ne "") { Write-Host "Unknown command. Type 'help'." } }
     }
 }
