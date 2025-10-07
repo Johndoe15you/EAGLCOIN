@@ -93,71 +93,70 @@ function Show-Help {
     Write-Host " help                                 - Show this message"
 }
 
-# ---------- Robust interactive loop (replace your old loop) ----------
 Write-Host "EAGLCOIN CLI - Interactive Mode"
-Write-Host "Type 'help' for commands, 'exit' or 'quit' to leave.`n"
+Write-Host "Type 'help' for commands, 'exit' to quit."
+Write-Host ""
 
 while ($true) {
-    $raw = Read-Host "EAGL>"
-    if ([string]::IsNullOrWhiteSpace($raw)) { continue }
-
-    # normalize input
-    $input = $raw.Trim()
-    if ($input.StartsWith(":")) { $input = $input.Substring(1).Trim() }  # allow leading colon like ": help"
-
-    $parts = $input -split '\s+'
-    if ($parts.Count -eq 0) { continue }
+    $input = Read-Host -Prompt "EAGL>"
+    $parts = $input -split "\s+"
     $cmd = $parts[0].ToLower()
+    $args = $parts[1..($parts.Length - 1)]
 
     switch ($cmd) {
-        "help" {
-            Show-Help
-            continue
-        }
-        "exit" | "quit" | "q" | "bye" {
-            Write-Host "Goodbye!"
+        "exit", "quit", "q", "bye" {
+            Write-Host "Exiting EAGLCOIN CLI..."
             break
         }
+
+        "help" {
+            Write-Host "Commands:"
+            Write-Host " create <WalletName> <Password>       - Create a new wallet"
+            Write-Host " list                                 - List all wallets and balances"
+            Write-Host " balance <WalletName>                 - Show balance of a wallet"
+            Write-Host " transfer <From> <Password> <To> <Amount> - Transfer between wallets"
+            Write-Host " node                                 - Node management options"
+            Write-Host " exit                                 - Exit CLI"
+        }
+
         "create" {
-            if ($parts.Count -lt 3) { Write-Host "Usage: create <WalletName> <Password>"; continue }
-            Wallet-Create $parts[1] $parts[2]
-            continue
-        }
-        "list" {
-            Wallet-List
-            continue
-        }
-        "balance" {
-            if ($parts.Count -lt 2) { Write-Host "Usage: balance <WalletName>"; continue }
-            Show-Balance $parts[1]
-            continue
-        }
-        "transfer" {
-            if ($parts.Count -lt 5) { Write-Host "Usage: transfer <From> <Password> <To> <Amount>"; continue }
-            Wallet-Transfer $parts[1] $parts[2] $parts[3] $parts[4]
-            continue
-        }
-        "node" {
-            # allow both "node status" and "node" then menu
-            if ($parts.Count -gt 1) {
-                $sub = $parts[1].ToLower()
-                switch ($sub) {
-                    "start"  { Node-Start }
-                    "stop"   { Node-Stop  }
-                    "status" { Node-Status }
-                    default  { Write-Host "Node commands: node start|stop|status" }
-                }
+            if ($args.Length -lt 2) {
+                Write-Host "Usage: create <WalletName> <Password>"
             } else {
-                Node-CLI
+                & $PSCommandPath create $args[0] $args[1]
             }
-            continue
         }
+
+        "list" {
+            & $PSCommandPath list
+        }
+
+        "balance" {
+            if ($args.Length -lt 1) {
+                Write-Host "Usage: balance <WalletName>"
+            } else {
+                & $PSCommandPath balance $args[0]
+            }
+        }
+
+        "transfer" {
+            if ($args.Length -lt 4) {
+                Write-Host "Usage: transfer <From> <Password> <To> <Amount>"
+            } else {
+                & $PSCommandPath transfer $args[0] $args[1] $args[2] $args[3]
+            }
+        }
+
+        "node" {
+            Write-Host "Node management options:"
+            Write-Host "  1. Start node"
+            Write-Host "  2. Stop node"
+            Write-Host "  3. Node status"
+            Write-Host "(Implement logic here)"
+        }
+
         default {
             Write-Host "Unknown command. Type 'help' for a list of commands."
         }
     }
 }
-
-# ensure script finishes and returns to caller (safe for dot-sourcing)
-return
-# --------------------------------------------------------------------
