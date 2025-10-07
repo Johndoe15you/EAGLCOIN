@@ -1,128 +1,167 @@
-<#
-.SYNOPSIS
-EAGLCOIN Wallet CLI (Interactive)
-Handles wallet creation, balance checking, transfers, and node management.
-#>
+# =========================
+# EAGLCOIN CLI - Interactive
+# =========================
 
-# --- Config ---
-$WalletFile = Join-Path -Path $PSScriptRoot -ChildPath "wallets.json"
+# Path for wallet storage
+$walletFile = Join-Path -Path $PSScriptRoot -ChildPath "wallets.json"
 
-# --- Helpers ---
-function Load-Wallets {
-    if (Test-Path $WalletFile) {
-        $json = Get-Content $WalletFile -Raw
-        if ($json.Trim() -eq "") { return @{} }
-        return $json | ConvertFrom-Json
-    } else {
-        return @{}
+# Load wallets from file or initialize
+if (Test-Path $walletFile) {
+    $wallets = Get-Content $walletFile | ConvertFrom-Json
+} else {
+    $wallets = @{}
+}
+
+# Function to save wallets
+function Save-Wallets {
+    $wallets | ConvertTo-Json -Depth 3 | Set-Content $walletFile
+}
+
+# Simple encryption/decryption
+function Encrypt-Key($plain, $password) {
+    $key = [System.Text.Encoding]::UTF8.GetBytes($password.PadRight(32))[0..31]
+    $aes = [System.Security.Cryptography.Aes]::Create()
+    $aes.Key = $key
+    $aes.IV = [byte[]]@(0..15)
+    $encryptor = $aes.CreateEncryptor()
+    $plainBytes = [System.Text.Encoding]::UTF8.GetBytes($plain)
+    $cipherBytes = $encryptor.TransformFinalBlock($plainBytes, 0, $plainBytes.Length)
+    [System.Convert]::ToBase64String($cipherBytes)
+}
+
+function Decrypt-Key($cipher, $password) {
+    $key = [System.Text.Encoding]::UTF8.GetBytes($password.PadRight(32))[0..31]
+    $aes = [System.Security.Cryptography.Aes]::Create()
+    $aes.Key = $key
+    $aes.IV = [byte[]]@(0..15)
+    $decryptor = $aes.CreateDecryptor()
+    $cipherBytes = [System.Convert]::FromBase64String($cipher)
+    $plainBytes = $decryptor.TransformFinalBlock($cipherBytes, 0, $cipherBytes.Length)
+    [System.Text.Encoding]::UTF8.GetString($plainBytes)
+}
+
+# =========================
+# Wallet Commands
+# =========================
+
+function Wallet-Create {
+    param($name, $pass)
+    if ($wallets.$name) {
+        Write-Host "Wallet '$name' already exists!"
+        return
+    }
+    # Generate a random wallet key (dummy for testnet)
+    $walletKey = -join ((65..90) + (97..122) | Get-Random -Count 32 | % {[char]$_})
+    $wallets.$name = @{
+        Key = Encrypt-Key $walletKey $pass
+        Balance = 0
+    }
+    Save-Wallets
+    Write-Host "Wallet '$name' created successfully."
+}
+
+function Wallet-List {
+    if ($wallets.Count -eq 0) { Write-Host "No wallets found."; return }
+    foreach ($w in $wallets.PSObject.Properties.Name) {
+        Write-Host "$w : Balance = $($wallets[$w].Balance)"
     }
 }
 
-function Save-Wallets ($wallets) {
-    $wallets | ConvertTo-Json -Depth 5 | Set-Content $WalletFile
+function Wallet-Balance {
+    param($name)
+    if (-not $wallets.$name) { Write-Host "Wallet '$name' not found."; return }
+    Write-Host "Balance of ${name}: $($wallets[$name].Balance)"
 }
 
-function Encrypt-Key($key, $password) {
-    $keyBytes = [System.Text.Encoding]::UTF8.GetBytes($key)
-    $passBytes = [System.Text.Encoding]::UTF8.GetBytes($password.PadRight(32)[0..31])
-    $aes = [System.Security.Cryptography.Aes]::Create()
-    $aes.Key = $passBytes
-    $aes.IV = @(0..15)
-    $encryptor = $aes.CreateEncryptor()
-    $cipherBytes = $encryptor.TransformFinalBlock($keyBytes, 0, $keyBytes.Length)
-    return [System.Convert]::ToBase64String($cipherBytes)
+function Wallet-Transfer {
+    param($from, $pass, $to, $amount)
+    if (-not $wallets.$from) { Write-Host "Wallet '$from' not found."; return }
+    if (-not $wallets.$to) { Write-Host "Wallet '$to' not found."; return }
+    try {
+        $key = Decrypt-Key $wallets[$from].Key $pass
+    } catch {
+        Write-Host "Incorrect password."
+        return
+    }
+    if ($wallets[$from].Balance -lt [int]$amount) { Write-Host "Insufficient balance."; return }
+    $wallets[$from].Balance -= [int]$amount
+    $wallets[$to].Balance += [int]$amount
+    Save-Wallets
+    Write-Host "Transferred $amount from $from to $to."
 }
 
-function Decrypt-Key($cipherText, $password) {
-    $cipherBytes = [System.Convert]::FromBase64String($cipherText)
-    $passBytes = [System.Text.Encoding]::UTF8.GetBytes($password.PadRight(32)[0..31])
-    $aes = [System.Security.Cryptography.Aes]::Create()
-    $aes.Key = $passBytes
-    $aes.IV = @(0..15)
-    $decryptor = $aes.CreateDecryptor()
-    $plainBytes = $decryptor.TransformFinalBlock($cipherBytes, 0, $cipherBytes.Length)
-    return [System.Text.Encoding]::UTF8.GetString($plainBytes)
+# =========================
+# Node Management Commands
+# =========================
+
+function Node-Start {
+    $existing = Get-Process -Name "java" -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "*EAGLCOIN*" }
+    if ($existing) { Write-Host "Node already running (PID: $($existing.Id))"; return }
+    Write-Host "Starting EAGL node..."
+    $nodeProcess = Start-Process -FilePath "sbt" -ArgumentList 'runMain org.eaglcoin.EaglApp' -PassThru
+    Write-Host "Node started with PID $($nodeProcess.Id)"
 }
 
-function Generate-WalletKey {
-    -join ((65..90) + (97..122) + (48..57) | Get-Random -Count 32 | ForEach-Object {[char]$_})
+function Node-Stop {
+    $existing = Get-Process -Name "java" -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "*EAGLCOIN*" }
+    if ($existing) {
+        Stop-Process -Id $existing.Id -Force
+        Write-Host "Node stopped."
+    } else { Write-Host "No running node found." }
 }
 
-# --- Main Loop ---
-$wallets = Load-Wallets
+function Node-Status {
+    $existing = Get-Process -Name "java" -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "*EAGLCOIN*" }
+    if ($existing) {
+        Write-Host "Node is running (PID: $($existing.Id))"
+        try {
+            $resp = Invoke-RestMethod -Uri "http://127.0.0.1:9053/info" -ErrorAction Stop
+            Write-Host "REST API live at $($resp.restApi)"
+        } catch { Write-Host "Node running but REST API not responding." }
+    } else { Write-Host "Node is not running." }
+}
+
+function Node-CLI {
+    Write-Host "Node management options:"
+    Write-Host "1. Start node"
+    Write-Host "2. Stop node"
+    Write-Host "3. Node status"
+    $choice = Read-Host "Select option"
+    switch ($choice) {
+        "1" { Node-Start }
+        "2" { Node-Stop }
+        "3" { Node-Status }
+        default { Write-Host "Invalid choice." }
+    }
+}
+
+# =========================
+# Interactive Loop
+# =========================
 
 Write-Host "EAGLCOIN CLI - Interactive Mode"
 Write-Host "Type 'help' for commands, 'exit' to quit.`n"
 
 while ($true) {
-    $inputLine = Read-Host "EAGL> "
-    if ([string]::IsNullOrWhiteSpace($inputLine)) { continue }
-
-    $args = $inputLine.Split(" ")
+    $input = Read-Host "EAGL> "
+    $args = $input.Split(" ")
     $cmd = $args[0].ToLower()
 
     switch ($cmd) {
-        "create" {
-            $Name = $args[1]
-            $Password = $args[2]
-            if (-not $Name -or -not $Password) { Write-Host "Usage: create <WalletName> <Password>"; break }
-            if ($wallets.$Name) { Write-Host "Wallet '$Name' already exists."; break }
-            $key = Generate-WalletKey
-            $encKey = Encrypt-Key $key $Password
-            $wallets | Add-Member -MemberType NoteProperty -Name $Name -Value @{ Key = $encKey; Balance = 0 }
-            Save-Wallets $wallets
-            Write-Host "Wallet '$Name' created successfully."
-        }
-        "list" {
-            if ($wallets.Keys.Count -eq 0) { Write-Host "No wallets found."; break }
-            foreach ($w in $wallets.Keys) {
-                Write-Host "Wallet: $w, Balance: $($wallets[$w].Balance)"
-            }
-        }
-        "balance" {
-            $Name = $args[1]
-            if (-not $Name) { Write-Host "Usage: balance <WalletName>"; break }
-            if (-not $wallets.$Name) { Write-Host "Wallet '$Name' not found."; break }
-            Write-Host "Balance of ${Name}: $($wallets[$Name].Balance)"
-        }
-        "transfer" {
-            $From = $args[1]
-            $Password = $args[2]
-            $To = $args[3]
-            $Amount = [decimal]$args[4]
-
-            if (-not ($From -and $Password -and $To -and $Amount)) {
-                Write-Host "Usage: transfer <FromWallet> <Password> <ToWallet> <Amount>"
-                break
-            }
-            if (-not $wallets.$From) { Write-Host "Wallet '$From' not found."; break }
-            if (-not $wallets.$To) { Write-Host "Recipient wallet '$To' not found."; break }
-            try { $decKey = Decrypt-Key $wallets[$From].Key $Password } catch { Write-Host "Incorrect password."; break }
-            if ($wallets[$From].Balance -lt $Amount) { Write-Host "Insufficient balance."; break }
-
-            $wallets[$From].Balance -= $Amount
-            $wallets[$To].Balance += $Amount
-            Save-Wallets $wallets
-            Write-Host "Transferred $Amount from '$From' to '$To'."
-        }
-        "node" {
-            Write-Host "Node management options:"
-            Write-Host "1. Start node"
-            Write-Host "2. Stop node"
-            Write-Host "3. Node status"
-            Write-Host "(Implement logic here)"
-        }
         "help" {
-            Write-Host @"
-Commands:
- create <WalletName> <Password>       - Create a new wallet
- list                                 - List all wallets and balances
- balance <WalletName>                  - Show balance of a wallet
- transfer <From> <Password> <To> <Amount> - Transfer amount between wallets
- node                                 - Node management options
- exit                                 - Exit CLI
-"@
+            Write-Host "Commands:"
+            Write-Host " create <WalletName> <Password>       - Create a new wallet"
+            Write-Host " list                                 - List all wallets and balances"
+            Write-Host " balance <WalletName>                  - Show balance of a wallet"
+            Write-Host " transfer <From> <Password> <To> <Amount> - Transfer amount between wallets"
+            Write-Host " node                                 - Node management options"
+            Write-Host " exit                                 - Exit CLI"
         }
+        "create" { Wallet-Create $args[1] $args[2] }
+        "list" { Wallet-List }
+        "balance" { Wallet-Balance $args[1] }
+        "transfer" { Wallet-Transfer $args[1] $args[2] $args[3] $args[4] }
+        "node" { Node-CLI }
         "exit" { break }
         default { Write-Host "Unknown command. Type 'help' for a list of commands." }
     }
