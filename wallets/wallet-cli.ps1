@@ -1,17 +1,8 @@
 <#
 .SYNOPSIS
-EAGLCOIN Wallet CLI (PowerShell)
+EAGLCOIN Wallet CLI (Interactive)
 Handles wallet creation, balance checking, transfers, and node management.
 #>
-
-# Param block MUST be first
-param(
-    [string]$Command,
-    [string]$Name,
-    [string]$Password,
-    [string]$Recipient,
-    [decimal]$Amount
-)
 
 # --- Config ---
 $WalletFile = Join-Path -Path $PSScriptRoot -ChildPath "wallets.json"
@@ -36,7 +27,7 @@ function Encrypt-Key($key, $password) {
     $passBytes = [System.Text.Encoding]::UTF8.GetBytes($password.PadRight(32)[0..31])
     $aes = [System.Security.Cryptography.Aes]::Create()
     $aes.Key = $passBytes
-    $aes.IV = @(0..15) # zero IV for testnet/playground
+    $aes.IV = @(0..15)
     $encryptor = $aes.CreateEncryptor()
     $cipherBytes = $encryptor.TransformFinalBlock($keyBytes, 0, $keyBytes.Length)
     return [System.Convert]::ToBase64String($cipherBytes)
@@ -57,73 +48,82 @@ function Generate-WalletKey {
     -join ((65..90) + (97..122) + (48..57) | Get-Random -Count 32 | ForEach-Object {[char]$_})
 }
 
-# --- Main ---
+# --- Main Loop ---
 $wallets = Load-Wallets
 
-switch ($Command) {
-    "create" {
-        if ([string]::IsNullOrEmpty($Name) -or [string]::IsNullOrEmpty($Password)) {
-            Write-Host "Usage: -Command create -Name <WalletName> -Password <Password>"
-            break
-        }
-        if ($wallets.$Name) {
-            Write-Host "Wallet '$Name' already exists."
-            break
-        }
-        $key = Generate-WalletKey
-        $encKey = Encrypt-Key $key $Password
-        $wallets | Add-Member -MemberType NoteProperty -Name $Name -Value @{ Key = $encKey; Balance = 0 }
-        Save-Wallets $wallets
-        Write-Host "Wallet '$Name' created successfully."
-    }
-    "list" {
-        if ($wallets.Keys.Count -eq 0) {
-            Write-Host "No wallets found."
-            break
-        }
-        foreach ($w in $wallets.Keys) {
-            Write-Host "Wallet: $w, Balance: $($wallets[$w].Balance)"
-        }
-    }
-    "balance" {
-        if (-not $Name) { Write-Host "Usage: -Command balance -Name <WalletName>"; break }
-        if (-not $wallets.$Name) { Write-Host "Wallet '$Name' not found."; break }
-        Write-Host "Balance of $Name: $($wallets[$Name].Balance)"
-    }
-    "transfer" {
-        if (-not ($Name -and $Recipient -and $Amount -and $Password)) {
-            Write-Host "Usage: -Command transfer -Name <FromWallet> -Password <Password> -Recipient <ToWallet> -Amount <Amount>"
-            break
-        }
-        if (-not $wallets.$Name) { Write-Host "Wallet '$Name' not found."; break }
-        if (-not $wallets.$Recipient) { Write-Host "Recipient wallet '$Recipient' not found."; break }
+Write-Host "EAGLCOIN CLI - Interactive Mode"
+Write-Host "Type 'help' for commands, 'exit' to quit.`n"
 
-        try {
-            $decKey = Decrypt-Key $wallets[$Name].Key $Password
-        } catch {
-            Write-Host "Incorrect password for wallet '$Name'."
-            break
-        }
+while ($true) {
+    $inputLine = Read-Host "EAGL> "
+    if ([string]::IsNullOrWhiteSpace($inputLine)) { continue }
 
-        if ($wallets[$Name].Balance -lt $Amount) {
-            Write-Host "Insufficient balance in wallet '$Name'."
-            break
-        }
+    $args = $inputLine.Split(" ")
+    $cmd = $args[0].ToLower()
 
-        $wallets[$Name].Balance -= $Amount
-        $wallets[$Recipient].Balance += $Amount
-        Save-Wallets $wallets
-        Write-Host "Transferred $Amount from '$Name' to '$Recipient'."
-    }
-    "node" {
-        Write-Host "Node management options:"
-        Write-Host "1. Start node"
-        Write-Host "2. Stop node"
-        Write-Host "3. Node status"
-        Write-Host "(Implement logic here to manage your EAGL node)"
-    }
-    default {
-        Write-Host "Commands: create, list, balance, transfer, node"
+    switch ($cmd) {
+        "create" {
+            $Name = $args[1]
+            $Password = $args[2]
+            if (-not $Name -or -not $Password) { Write-Host "Usage: create <WalletName> <Password>"; break }
+            if ($wallets.$Name) { Write-Host "Wallet '$Name' already exists."; break }
+            $key = Generate-WalletKey
+            $encKey = Encrypt-Key $key $Password
+            $wallets | Add-Member -MemberType NoteProperty -Name $Name -Value @{ Key = $encKey; Balance = 0 }
+            Save-Wallets $wallets
+            Write-Host "Wallet '$Name' created successfully."
+        }
+        "list" {
+            if ($wallets.Keys.Count -eq 0) { Write-Host "No wallets found."; break }
+            foreach ($w in $wallets.Keys) {
+                Write-Host "Wallet: $w, Balance: $($wallets[$w].Balance)"
+            }
+        }
+        "balance" {
+            $Name = $args[1]
+            if (-not $Name) { Write-Host "Usage: balance <WalletName>"; break }
+            if (-not $wallets.$Name) { Write-Host "Wallet '$Name' not found."; break }
+            Write-Host "Balance of ${Name}: $($wallets[$Name].Balance)"
+        }
+        "transfer" {
+            $From = $args[1]
+            $Password = $args[2]
+            $To = $args[3]
+            $Amount = [decimal]$args[4]
+
+            if (-not ($From -and $Password -and $To -and $Amount)) {
+                Write-Host "Usage: transfer <FromWallet> <Password> <ToWallet> <Amount>"
+                break
+            }
+            if (-not $wallets.$From) { Write-Host "Wallet '$From' not found."; break }
+            if (-not $wallets.$To) { Write-Host "Recipient wallet '$To' not found."; break }
+            try { $decKey = Decrypt-Key $wallets[$From].Key $Password } catch { Write-Host "Incorrect password."; break }
+            if ($wallets[$From].Balance -lt $Amount) { Write-Host "Insufficient balance."; break }
+
+            $wallets[$From].Balance -= $Amount
+            $wallets[$To].Balance += $Amount
+            Save-Wallets $wallets
+            Write-Host "Transferred $Amount from '$From' to '$To'."
+        }
+        "node" {
+            Write-Host "Node management options:"
+            Write-Host "1. Start node"
+            Write-Host "2. Stop node"
+            Write-Host "3. Node status"
+            Write-Host "(Implement logic here)"
+        }
+        "help" {
+            Write-Host @"
+Commands:
+ create <WalletName> <Password>       - Create a new wallet
+ list                                 - List all wallets and balances
+ balance <WalletName>                  - Show balance of a wallet
+ transfer <From> <Password> <To> <Amount> - Transfer amount between wallets
+ node                                 - Node management options
+ exit                                 - Exit CLI
+"@
+        }
+        "exit" { break }
+        default { Write-Host "Unknown command. Type 'help' for a list of commands." }
     }
 }
-
