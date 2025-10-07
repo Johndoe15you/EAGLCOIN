@@ -1,40 +1,48 @@
 # =========================
-#  EAGLCOIN CLI - PowerShell Edition
+#  EAGLCOIN CLI - PowerShell Edition v2.1
 # =========================
 
-$wallets = @{}
-$nodeRunning = $false
-$mining = $false
+$global:wallets = @{}
+$global:nodeRunning = $false
+$global:mining = $false
 
 function Create-Wallet($name) {
-    if ($wallets.ContainsKey($name)) {
+    if ($global:wallets.ContainsKey($name)) {
         Write-Host "Wallet '$name' already exists."
     } else {
-        $wallets[$name] = 100
+        $global:wallets[$name] = 100
         Write-Host "Wallet '$name' created with 100 EAGL."
     }
 }
 
 function Show-Balance($name) {
-    if ($wallets.ContainsKey($name)) {
-        Write-Host "Balance of '$name': $($wallets[$name]) EAGL"
+    if ($global:wallets.ContainsKey($name)) {
+        Write-Host "Balance of '$name': $($global:wallets[$name]) EAGL"
     } else {
         Write-Host "Wallet '$name' not found."
     }
 }
 
 function Transfer($from, $to, $amount) {
-    if (-not $wallets.ContainsKey($from)) { Write-Host "Sender '$from' not found."; return }
-    if (-not $wallets.ContainsKey($to)) { Write-Host "Receiver '$to' not found."; return }
-    if ($wallets[$from] -lt $amount) { Write-Host "Insufficient funds in '$from'."; return }
+    if (-not $global:wallets.ContainsKey($from)) { Write-Host "Sender '$from' not found."; return }
+    if (-not $global:wallets.ContainsKey($to)) { Write-Host "Receiver '$to' not found."; return }
 
-    $wallets[$from] -= $amount
-    $wallets[$to] += $amount
-    Write-Host "Transferred $amount EAGL from '$from' to '$to'."
+    try {
+        $amt = [decimal]$amount
+    } catch {
+        Write-Host "Invalid amount format: '$amount'. Please enter a number."
+        return
+    }
+
+    if ($global:wallets[$from] -lt $amt) { Write-Host "Insufficient funds in '$from'."; return }
+
+    $global:wallets[$from] -= $amt
+    $global:wallets[$to] += $amt
+    Write-Host "Transferred $amt EAGL from '$from' to '$to'."
 }
 
 function Start-Node() {
-    if ($nodeRunning) {
+    if ($global:nodeRunning) {
         Write-Host "Node is already running."
     } else {
         $global:nodeRunning = $true
@@ -43,7 +51,7 @@ function Start-Node() {
 }
 
 function Stop-Node() {
-    if (-not $nodeRunning) {
+    if (-not $global:nodeRunning) {
         Write-Host "Node is not running."
     } else {
         $global:nodeRunning = $false
@@ -52,7 +60,7 @@ function Stop-Node() {
 }
 
 function Node-Status() {
-    if ($nodeRunning) {
+    if ($global:nodeRunning) {
         Write-Host "Node is running and synced."
     } else {
         Write-Host "Node is not running."
@@ -60,18 +68,18 @@ function Node-Status() {
 }
 
 function Mine-Block($miner) {
-    if (-not $wallets.ContainsKey($miner)) {
+    if (-not $global:wallets.ContainsKey($miner)) {
         Write-Host "Miner wallet '$miner' not found."
         return
     }
 
     $reward = 25
-    $wallets[$miner] += $reward
+    $global:wallets[$miner] += $reward
     Write-Host "Block mined! '$miner' earned $reward EAGL."
 }
 
 function Mine-Auto($miner) {
-    if (-not $wallets.ContainsKey($miner)) {
+    if (-not $global:wallets.ContainsKey($miner)) {
         Write-Host "Miner wallet '$miner' not found."
         return
     }
@@ -124,15 +132,15 @@ while ($true) {
         }
         "transfer" {
             if ($args.Count -lt 3) { Write-Host "Usage: transfer [from] [to] [amount]" }
-            else { Transfer $args[0] $args[1] [decimal]$args[2] }
+            else { Transfer $args[0] $args[1] $args[2] }
         }
         "list" {
-            if ($wallets.Count -eq 0) {
+            if ($global:wallets.Count -eq 0) {
                 Write-Host "No wallets found."
             } else {
                 Write-Host "Wallets:"
-                foreach ($k in $wallets.Keys) {
-                    Write-Host "  $k -> $($wallets[$k]) EAGL"
+                foreach ($k in $global:wallets.Keys) {
+                    Write-Host "  $k -> $($global:wallets[$k]) EAGL"
                 }
             }
         }
