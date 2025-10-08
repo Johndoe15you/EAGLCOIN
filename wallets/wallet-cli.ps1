@@ -25,7 +25,8 @@ function Safe-WriteJson([object]$obj, [string]$path) {
         $obj | ConvertTo-Json -Depth 10 | Out-File -FilePath $tmp -Encoding UTF8
         Move-Item -Force -Path $tmp -Destination $path
     } catch {
-        Write-Host "Error writing $path: $_"
+        Write-Host "Error writing ${path}: $_"
+
     }
 }
 
