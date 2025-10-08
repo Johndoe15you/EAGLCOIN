@@ -393,12 +393,15 @@ Write-Host "EAGLCOIN CLI - Interactive Mode (sync-capable)"
 Write-Host "Type 'help' for commands, 'exit' to quit.`n"
 
 while ($true) {
-    $input = Read-Host "EAGL>"
-    if ($null -eq $input) { continue }
-    $parts = $input.Trim() -split '\s+' | Where-Object { $_ -ne '' }
-    if ($parts.Count -eq 0) { continue }
+    $inputLine = Read-Host "EAGL>"
+if ([string]::IsNullOrWhiteSpace($inputLine)) { continue }
 
-    $cmd = $parts[0].ToLower()
+# Split the line into arguments by spaces
+$parts = $inputLine -split '\s+'
+
+$cmd = $parts[0].ToLower()
+
+
 
     switch ($cmd) {
         "help" { Show-Help }
