@@ -1,84 +1,154 @@
-# ===============================
-# EAGLCOIN CLI - Version 2.0
-# Persistent wallet, blockchain, and threaded mining
-# ===============================
+# EAGLCOIN CLI - Full (syncing + persistent blockchain + background mining)
+# Save as wallet-cli.ps1 in your EAGLCOIN\wallets folder.
 
-$walletFile = "wallets.json"
-$blockchainFile = "blockchain.json"
-$nodeRunning = $false
-$autoMineJob = $null
-$blockReward = 25
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Continue'
 
-# -------------------------------
-# Load wallets and blockchain
-# -------------------------------
-if (Test-Path $walletFile) {
-    $wallets = Get-Content $walletFile | ConvertFrom-Json
-} else {
-    $wallets = @{}
-}
+# Files (relative to where script runs)
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
+if ($scriptDir -eq '') { $scriptDir = Get-Location }
+$walletFile     = Join-Path $scriptDir "wallets.json"
+$blockchainFile = Join-Path $scriptDir "blockchain.json"
+$peersFile      = Join-Path $scriptDir "peers.json"
 
-if (Test-Path $blockchainFile) {
-    $blockchain = Get-Content $blockchainFile | ConvertFrom-Json
-} else {
-    $blockchain = @()
-}
+# Globals
+$global:nodeRunning = $false
+$global:autoMineJob = $null
+$global:blockReward = 25
 
-# -------------------------------
-# Save functions
-# -------------------------------
-function Save-Wallets {
-    $wallets | ConvertTo-Json | Set-Content -Encoding UTF8 $walletFile
-}
-
-function Save-Blockchain {
-    $blockchain | ConvertTo-Json | Set-Content -Encoding UTF8 $blockchainFile
-}
-
-# -------------------------------
-# Node control
-# -------------------------------
-function Start-Node {
-    if ($nodeRunning) {
-        Write-Host "Node already running."
-        return
-    }
-    $global:nodeRunning = $true
-    Write-Host "Node started. Blockchain synced."
-}
-
-function Stop-Node {
-    if (-not $nodeRunning) {
-        Write-Host "Node is not running."
-        return
-    }
-    if ($autoMineJob) {
-        Stop-Job $autoMineJob -ErrorAction SilentlyContinue
-        Remove-Job $autoMineJob -ErrorAction SilentlyContinue
-        $global:autoMineJob = $null
-    }
-    $global:nodeRunning = $false
-    Write-Host "Node stopped."
-}
-
-function Node-Status {
-    if ($nodeRunning) {
-        Write-Host "Node is running and synced."
-    } else {
-        Write-Host "Node is not running."
+# ---------------------------
+# Utilities
+# ---------------------------
+function Safe-WriteJson([object]$obj, [string]$path) {
+    try {
+        $tmp = "$path.tmp"
+        $obj | ConvertTo-Json -Depth 10 | Out-File -FilePath $tmp -Encoding UTF8
+        Move-Item -Force -Path $tmp -Destination $path
+    } catch {
+        Write-Host "Error writing $path: $_"
     }
 }
 
-# -------------------------------
-# Wallet management
-# -------------------------------
+# Convert PSCustomObject (from ConvertFrom-Json) into a hashtable recursively
+function ConvertTo-HashtableRecursive($obj) {
+    if ($null -eq $obj) { return @{} }
+    if ($obj -is [System.Collections.IDictionary]) {
+        # Already something dictionary-like
+        $h = @{}
+        foreach ($k in $obj.Keys) { $h[$k] = ConvertTo-HashtableRecursive $obj[$k] }
+        return $h
+    }
+    if ($obj -is [System.Collections.IEnumerable] -and -not ($obj -is [string])) {
+        # Array/list -> return array of converted elements
+        $arr = @()
+        foreach ($item in $obj) { $arr += (ConvertTo-HashtableRecursive $item) }
+        return ,$arr
+    }
+    if ($obj.PSObject -and $obj.PSObject.Properties) {
+        $h = @{}
+        foreach ($p in $obj.PSObject.Properties) {
+            $h[$p.Name] = ConvertTo-HashtableRecursive $p.Value
+        }
+        return $h
+    }
+    return $obj
+}
+
+# Load JSON file and convert to suitable PowerShell structures
+function Load-JsonAsNative($path) {
+    if (-not (Test-Path $path)) { return $null }
+    $raw = Get-Content -Raw -Path $path
+    if ($raw -eq '') { return $null }
+    $parsed = $raw | ConvertFrom-Json
+    return ConvertTo-HashtableRecursive $parsed
+}
+
+# ---------------------------
+# Persistence: load or initialize
+# ---------------------------
+$wallets = Load-JsonAsNative $walletFile
+if ($null -eq $wallets) { $wallets = @{} }
+
+$blockchain = Load-JsonAsNative $blockchainFile
+if ($null -eq $blockchain) { $blockchain = @() }
+
+$peers = Load-JsonAsNative $peersFile
+if ($null -eq $peers) { $peers = @() } # array of peer URLs
+
+function Save-Wallets { Safe-WriteJson $wallets $walletFile }
+function Save-Blockchain { Safe-WriteJson $blockchain $blockchainFile }
+function Save-Peers { Safe-WriteJson $peers $peersFile }
+
+# ---------------------------
+# Blockchain helpers
+# ---------------------------
+# Blockchain entry types:
+#  - { type: "create", name: "miner1", initial: 100, timestamp: ... }
+#  - { type: "tx", from:"a", to:"b", amount:decimal, timestamp: ... }
+#  - { type: "block", miner:"m", reward:25, timestamp: ... , id: N }
+#
+# Rebuild wallets state from the blockchain
+function Rebuild-WalletsFromBlockchain {
+    $new = @{}
+    foreach ($entry in $blockchain) {
+        switch ($entry.type) {
+            "create" {
+                $n = $entry.name
+                $val = [decimal]$entry.initial
+                if (-not $new.ContainsKey($n)) { $new[$n] = 0 }
+                $new[$n] += $val
+            }
+            "tx" {
+                $from = $entry.from
+                $to   = $entry.to
+                $amt  = [decimal]$entry.amount
+                if (-not $new.ContainsKey($from)) { $new[$from] = 0 }
+                if (-not $new.ContainsKey($to))   { $new[$to] = 0 }
+                $new[$from] -= $amt
+                $new[$to]   += $amt
+            }
+            "block" {
+                $miner = $entry.miner
+                $rew = [decimal]$entry.reward
+                if (-not $new.ContainsKey($miner)) { $new[$miner] = 0 }
+                $new[$miner] += $rew
+            }
+            default {
+                # ignore unknown entries
+            }
+        }
+    }
+    # replace wallets
+    $global:wallets = $new
+    Save-Wallets
+}
+
+# Append entry to blockchain safely and save
+function Append-BlockchainEntry($entry) {
+    # Make sure we have an array
+    if ($null -eq $blockchain) { $global:blockchain = @() }
+    $global:blockchain += $entry
+    Save-Blockchain
+}
+
+# ---------------------------
+# Wallet and node functions
+# ---------------------------
 function Create-Wallet($name) {
     if ($wallets.ContainsKey($name)) {
         Write-Host "Wallet '$name' already exists."
         return
     }
-    $wallets[$name] = 100
-    Save-Wallets
+    # Record create as a blockchain entry so state is reconstructable
+    $entry = @{
+        type = "create"
+        name = $name
+        initial = 100
+        timestamp = (Get-Date).ToString("o")
+    }
+    Append-BlockchainEntry $entry
+    # Rebuild from blockchain (so wallets always derived from canonical chain)
+    Rebuild-WalletsFromBlockchain
     Write-Host "Wallet '$name' created with 100 EAGL."
 }
 
@@ -87,7 +157,7 @@ function Show-Balance($name) {
         Write-Host "Wallet '$name' not found."
         return
     }
-    Write-Host "$name balance: $($wallets[$name]) EAGL"
+    Write-Host "$name balance: $([decimal]$wallets[$name]) EAGL"
 }
 
 function List-Wallets {
@@ -96,158 +166,280 @@ function List-Wallets {
         return
     }
     Write-Host "Wallets:"
-    foreach ($key in $wallets.Keys) {
-        Write-Host " - $key : $($wallets[$key]) EAGL"
+    foreach ($k in $wallets.Keys) {
+        Write-Host " - $k : $([decimal]$wallets[$k]) EAGL"
     }
 }
 
-# -------------------------------
-# Transactions
-# -------------------------------
 function Transfer($from, $to, [decimal]$amount) {
-    if (-not $wallets.ContainsKey($from)) {
-        Write-Host "Sender '$from' not found."
-        return
+    if (-not $wallets.ContainsKey($from)) { Write-Host "Sender '$from' not found."; return }
+    if (-not $wallets.ContainsKey($to))   { Write-Host "Receiver '$to' not found."; return }
+    if ($amount -le 0) { Write-Host "Amount must be positive."; return }
+    if ([decimal]$wallets[$from] -lt $amount) { Write-Host "Insufficient funds."; return }
+
+    $tx = @{
+        type = "tx"
+        from = $from
+        to = $to
+        amount = $amount
+        timestamp = (Get-Date).ToString("o")
     }
-    if (-not $wallets.ContainsKey($to)) {
-        Write-Host "Receiver '$to' not found."
-        return
-    }
-    if ($wallets[$from] -lt $amount) {
-        Write-Host "Insufficient funds."
-        return
-    }
-    $wallets[$from] -= $amount
-    $wallets[$to] += $amount
-    Save-Wallets
+    Append-BlockchainEntry $tx
+    Rebuild-WalletsFromBlockchain
     Write-Host "Transferred $amount EAGL from '$from' to '$to'."
 }
 
-# -------------------------------
-# Mining
-# -------------------------------
-function Mine-Block($miner) {
-    if (-not $wallets.ContainsKey($miner)) {
-        Write-Host "Miner wallet '$miner' not found."
-        return
-    }
-
-    $block = [PSCustomObject]@{
-        id         = ($blockchain.Count + 1)
-        miner      = $miner
-        reward     = $blockReward
-        timestamp  = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
-    }
-
-    $blockchain += $block
-    $wallets[$miner] += $blockReward
-    Save-Wallets
-    Save-Blockchain
-
-    Write-Host "Block mined! '$miner' earned $blockReward EAGL (Block ID: $($block.id))."
+function Start-Node {
+    if ($global:nodeRunning) { Write-Host "Node already running."; return }
+    $global:nodeRunning = $true
+    Write-Host "Node started. Blockchain ready."
 }
 
-function Start-AutoMine($miner) {
-    if (-not $wallets.ContainsKey($miner)) {
-        Write-Host "Miner wallet '$miner' not found."
-        return
+function Stop-Node {
+    if (-not $global:nodeRunning) { Write-Host "Node is not running."; return }
+    # stop auto-mining job if present
+    if ($global:autoMineJob) {
+        try { Stop-Job -Job $global:autoMineJob -Force -ErrorAction SilentlyContinue } catch {}
+        try { Remove-Job -Job $global:autoMineJob -ErrorAction SilentlyContinue } catch {}
+        $global:autoMineJob = $null
+        Write-Host "Auto-mining job stopped."
     }
-    if ($autoMineJob) {
-        Write-Host "Auto-mining already running."
-        return
+    $global:nodeRunning = $false
+    Write-Host "Node stopped."
+}
+
+function Node-Status {
+    if ($global:nodeRunning) { Write-Host "Node is running." } else { Write-Host "Node is not running." }
+}
+
+function Mine-Block($miner) {
+    if (-not $wallets.ContainsKey($miner)) { Write-Host "Miner wallet '$miner' not found."; return }
+    $id = ($blockchain.Count + 1)
+    $block = @{
+        type = "block"
+        id = $id
+        miner = $miner
+        reward = $global:blockReward
+        timestamp = (Get-Date).ToString("o")
     }
+    Append-BlockchainEntry $block
+    Rebuild-WalletsFromBlockchain
+    Write-Host "Block mined! '$miner' earned $global:blockReward EAGL (Block ID: $id)."
+}
 
-    Write-Host "Auto-mining started for '$miner'. Type 'node stop' to end."
+function Start-AutoMine($miner, $intervalSeconds = 5) {
+    if (-not $wallets.ContainsKey($miner)) { Write-Host "Miner wallet '$miner' not found."; return }
+    if ($global:autoMineJob) { Write-Host "Auto-mining already running."; return }
 
+    Write-Host "Auto-mining started for '$miner'. Use 'node stop' to stop."
+
+    # run a job that appends blocks and updates local files
     $global:autoMineJob = Start-Job -ScriptBlock {
-        param($minerName, $walletFile, $blockchainFile, $reward)
+        param($minerName, $walletPath, $blockPath, $reward, $interval)
         while ($true) {
-            Start-Sleep -Seconds 5
+            Start-Sleep -Seconds $interval
             try {
-                $wallets = Get-Content $walletFile | ConvertFrom-Json
-                $blockchain = Get-Content $blockchainFile | ConvertFrom-Json
-
-                $block = [PSCustomObject]@{
-                    id         = ($blockchain.Count + 1)
-                    miner      = $minerName
-                    reward     = $reward
-                    timestamp  = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+                # load files (safe)
+                $blockchainLocal = @()
+                if (Test-Path $blockPath) {
+                    $blockchainLocal = Get-Content -Raw $blockPath | ConvertFrom-Json
+                }
+                $walletsLocal = @{}
+                if (Test-Path $walletPath) {
+                    $walletsLocal = Get-Content -Raw $walletPath | ConvertFrom-Json
+                    # convert keys/numerics not strictly necessary inside job; use dynamic
                 }
 
-                $blockchain += $block
-                $wallets[$minerName] += $reward
+                # append block entry
+                $nextId = ($blockchainLocal.Count + 1)
+                $block = @{
+                    type = "block"
+                    id = $nextId
+                    miner = $minerName
+                    reward = $reward
+                    timestamp = (Get-Date).ToString("o")
+                }
+                $blockchainLocal += $block
 
-                $wallets | ConvertTo-Json | Set-Content -Encoding UTF8 $walletFile
-                $blockchain | ConvertTo-Json | Set-Content -Encoding UTF8 $blockchainFile
+                # update or create miner wallet
+                if (-not $walletsLocal.ContainsKey($minerName)) { $walletsLocal[$minerName] = 0 }
+                $walletsLocal[$minerName] = [decimal]$walletsLocal[$minerName] + [decimal]$reward
 
-                Write-Output "Block mined! '$minerName' earned $reward EAGL (Block ID: $($block.id))."
+                # save files atomically
+                $blockchainLocal | ConvertTo-Json -Depth 10 | Out-File -FilePath "$blockPath.tmp" -Encoding UTF8
+                Move-Item -Force "$blockPath.tmp" $blockPath
+
+                $walletsLocal | ConvertTo-Json -Depth 10 | Out-File -FilePath "$walletPath.tmp" -Encoding UTF8
+                Move-Item -Force "$walletPath.tmp" $walletPath
+
+                Write-Output "Block mined! '$minerName' earned $reward EAGL (Block ID: $nextId)."
             } catch {
-                Write-Output "Mining error: $_"
+                Write-Output "Auto-mine job error: $_"
             }
         }
-    } -ArgumentList $miner, $walletFile, $blockchainFile, $blockReward
+    } -ArgumentList $miner, $walletFile, $blockchainFile, $global:blockReward, $intervalSeconds
 }
 
-# -------------------------------
-# CLI Loop
-# -------------------------------
-Write-Host "EAGLCOIN CLI - Interactive Mode"
+# ---------------------------
+# Peer management + Sync
+# ---------------------------
+function Add-Peer($url) {
+    if (-not $peers) { $peers = @() }
+    if ($peers -contains $url) { Write-Host "Peer already added." ; return }
+    $peers += $url
+    Save-Peers
+    Write-Host "Peer $url added."
+}
+
+function List-Peers {
+    if (-not $peers -or $peers.Count -eq 0) { Write-Host "No peers." ; return }
+    Write-Host "Peers:"
+    foreach ($p in $peers) { Write-Host " - $p" }
+}
+
+# Try to fetch peer blockchain JSON from common endpoints
+function Get-Peer-Blockchain($peerBase) {
+    $candidates = @(
+        "$peerBase/blockchain.json",
+        "$peerBase/blockchain",
+        "$peerBase/blocks",
+        "$peerBase/chain",
+        "$peerBase/blockchain.json/",
+        "$peerBase/api/blockchain"
+    )
+    foreach ($ep in $candidates) {
+        try {
+            # Use Invoke-RestMethod -> returns parsed object for JSON
+            $res = Invoke-RestMethod -Uri $ep -Method Get -TimeoutSec 5 -ErrorAction Stop
+            if ($res -ne $null) {
+                return $res
+            }
+        } catch {
+            # ignore and try next
+        }
+    }
+    return $null
+}
+
+# Merge strategy: longest chain wins (simple)
+function Sync-With-Peers {
+    if (-not $peers -or $peers.Count -eq 0) { Write-Host "No peers to sync with."; return }
+
+    $best = $null
+    $bestLen = $blockchain.Count
+
+    foreach ($p in $peers) {
+        Write-Host "Querying peer $p ..."
+        $remote = $null
+        try {
+            $remote = Get-Peer-Blockchain $p
+        } catch {
+            Write-Host "Failed to reach $p"
+            continue
+        }
+        if ($null -eq $remote) { Write-Host "Peer $p didn't return blockchain."; continue }
+
+        # convert remote to array and length
+        try {
+            $remoteCount = $remote.Count
+        } catch {
+            $remoteCount = 0
+        }
+
+        if ($remoteCount -gt $bestLen) {
+            $bestLen = $remoteCount
+            $best = $remote
+            Write-Host "Found longer chain at $p (length $remoteCount)."
+        } else {
+            Write-Host "Peer $p chain length $remoteCount (not longer)."
+        }
+    }
+
+    if ($best -ne $null) {
+        # Replace local blockchain with best and rebuild wallets
+        $global:blockchain = ConvertTo-HashtableRecursive $best
+        Save-Blockchain
+        Rebuild-WalletsFromBlockchain
+        Write-Host "Replaced local chain with longer chain (length $bestLen). Wallets rebuilt."
+    } else {
+        Write-Host "No longer chain found among peers."
+    }
+}
+
+# ---------------------------
+# CLI loop
+# ---------------------------
+function Show-Help {
+@"
+Commands:
+  create [name]                      - Create new wallet (recorded to chain)
+  balance [name]                     - Show wallet balance
+  transfer [from] [to] [amount]      - Transfer EAGL (recorded to chain)
+  node start                         - Start node (in-memory flag)
+  node stop                          - Stop node and auto-mining
+  node status                        - Node status
+  node mine [miner]                  - Mine one block (adds to blockchain)
+  node mine auto [miner]             - Auto-mine every 5s (background job)
+  peer add [url]                     - Add peer (e.g. http://1.2.3.4:9053)
+  peer list                          - List peers
+  sync                                - Sync blockchain with peers (longest chain)
+  list                                - Show wallets
+  exit                                - Exit CLI
+"@
+}
+
+Write-Host "EAGLCOIN CLI - Interactive Mode (sync-capable)"
 Write-Host "Type 'help' for commands, 'exit' to quit.`n"
 
 while ($true) {
     $input = Read-Host "EAGL>"
-    if ($input -eq "exit") { Stop-Node; break }
+    if ($null -eq $input) { continue }
+    $parts = $input.Trim() -split '\s+' | Where-Object { $_ -ne '' }
+    if ($parts.Count -eq 0) { continue }
 
-    $args = $input.Split(" ")
-    $cmd = $args[0]
+    $cmd = $parts[0].ToLower()
 
     switch ($cmd) {
-        "help" {
-            Write-Host "Commands:"
-            Write-Host "  create [name]                    - Create new wallet"
-            Write-Host "  balance [name]                   - Show wallet balance"
-            Write-Host "  transfer [from] [to] [amount]    - Send EAGL"
-            Write-Host "  node start                       - Start node"
-            Write-Host "  node stop                        - Stop node"
-            Write-Host "  node status                      - Node status"
-            Write-Host "  node mine [miner]                - Mine one block"
-            Write-Host "  node mine auto [miner]           - Auto-mine every 5s"
-            Write-Host "  list                             - Show all wallets"
-            Write-Host "  exit                             - Quit"
+        "help" { Show-Help }
+        "create" {
+            if ($parts.Count -lt 2) { Write-Host "Usage: create [name]" } else { Create-Wallet $parts[1] }
         }
-        "create" { if ($args.Count -gt 1) { Create-Wallet $args[1] } else { Write-Host "Usage: create [name]" } }
-        "balance" { if ($args.Count -gt 1) { Show-Balance $args[1] } else { Write-Host "Usage: balance [name]" } }
+        "balance" {
+            if ($parts.Count -lt 2) { Write-Host "Usage: balance [name]" } else { Show-Balance $parts[1] }
+        }
         "list" { List-Wallets }
         "transfer" {
-    if ($args.Count -eq 4) {
-        $amount = [decimal]($args[3])
-        Transfer $args[1] $args[2] $amount
-    } else {
-        Write-Host "Usage: transfer [from] [to] [amount]"
-    }
-}
-
-        "node" {
-            if ($args.Count -lt 2) {
-                Write-Host "Usage: node [start|stop|status|mine|mine auto]"
-                continue
+            if ($parts.Count -ne 4) { Write-Host "Usage: transfer [from] [to] [amount]" }
+            else {
+                try { $amt = [decimal]::Parse($parts[3]) } catch { Write-Host "Invalid amount."; continue }
+                Transfer $parts[1] $parts[2] $amt
             }
-            switch ($args[1]) {
-                "start" { Start-Node }
-                "stop" { Stop-Node }
+        }
+        "node" {
+            if ($parts.Count -lt 2) { Write-Host "Usage: node [start|stop|status|mine]" ; continue }
+            switch ($parts[1].ToLower()) {
+                "start"  { Start-Node }
+                "stop"   { Stop-Node }
                 "status" { Node-Status }
                 "mine" {
-                    if ($args.Count -eq 3) {
-                        Mine-Block $args[2]
-                    } elseif ($args.Count -eq 4 -and $args[2] -eq "auto") {
-                        Start-AutoMine $args[3]
-                    } else {
-                        Write-Host "Usage: node mine [miner] or node mine auto [miner]"
-                    }
+                    if ($parts.Count -eq 3 -and $parts[2].ToLower() -eq "auto") { Write-Host "Usage: node mine auto [miner]" }
+                    elseif ($parts.Count -eq 3) { Mine-Block $parts[2] }
+                    elseif ($parts.Count -eq 4 -and $parts[2].ToLower() -eq "auto") { Start-AutoMine $parts[3] }
+                    else { Write-Host "Usage: node mine [miner] OR node mine auto [miner]" }
                 }
                 default { Write-Host "Unknown node command." }
             }
         }
-        default { if ($cmd -ne "") { Write-Host "Unknown command. Type 'help'." } }
+        "peer" {
+            if ($parts.Count -lt 2) { Write-Host "Usage: peer [add|list] ..." ; continue }
+            switch ($parts[1].ToLower()) {
+                "add" { if ($parts.Count -ne 3) { Write-Host "Usage: peer add [url]" } else { Add-Peer $parts[2] } }
+                "list" { List-Peers }
+                default { Write-Host "Unknown peer subcommand." }
+            }
+        }
+        "sync" { Sync-With-Peers }
+        "exit" { Stop-Node; break }
+        default { Write-Host "Unknown command. Type 'help'." }
     }
 }
