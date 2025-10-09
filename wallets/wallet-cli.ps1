@@ -389,7 +389,7 @@ function Create-Wallet($name) {
 function Show-Balance($name) {
     $w = Load-Wallets
     if (-not $w.ContainsKey($name)) { Write-Host "Wallet '$name' not found."; return }
-    Write-Host "Balance of $name: $($w[$name]) EAGL"
+    Write-Host "Balance of ${name}: $($w[$name]) EAGL"
 }
 
 function Transfer($from, $to, [decimal]$amount) {
