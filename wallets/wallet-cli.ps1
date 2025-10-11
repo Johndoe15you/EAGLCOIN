@@ -1,6 +1,4 @@
-# EAGLCOIN Wallet CLI - Full version with node support
-# Saves wallets in JSON and starts a simple node via background job
-# PowerShell 7+ recommended
+# EAGLCOIN Wallet CLI - Full version with node support (PowerShell 5–7 compatible)
 
 $walletFile = "$PSScriptRoot\wallets.json"
 $nodeLog    = "$PSScriptRoot\node.log"
@@ -8,8 +6,15 @@ $wallets    = @{}
 
 function Load-Wallets {
     if (Test-Path $walletFile) {
-        try { $wallets = Get-Content $walletFile | ConvertFrom-Json -AsHashtable }
-        catch { Write-Host "⚠️ Error reading ${walletFile}: $_" }
+        try {
+            $json = Get-Content $walletFile -Raw
+            if ($json.Trim().Length -gt 0) {
+                $wallets = ConvertFrom-Json $json
+            } else { $wallets = @{} }
+        } catch {
+            Write-Host "⚠️ Error reading ${walletFile}: $_"
+            $wallets = @{}
+        }
     } else { $wallets = @{} }
 }
 
@@ -34,30 +39,42 @@ Commands:
 }
 
 function Create-Wallet($name) {
-    if ($wallets.ContainsKey($name)) { Write-Host "Wallet '$name' exists."; return }
-    $wallets[$name] = 100
+    if ($wallets.PSObject.Properties.Name -contains $name) {
+        Write-Host "Wallet '$name' exists."; return
+    }
+    Add-Member -InputObject $wallets -NotePropertyName $name -NotePropertyValue 100
     Save-Wallets
     Write-Host "✅ Wallet '$name' created with 100 EAGL."
 }
 
 function List-Wallets {
-    if ($wallets.Count -eq 0) { Write-Host "No wallets yet."; return }
+    $names = $wallets.PSObject.Properties.Name
+    if ($names.Count -eq 0) { Write-Host "No wallets yet."; return }
     Write-Host "Wallets:"
-    foreach ($k in $wallets.Keys) { Write-Host "  $k : $($wallets[$k]) EAGL" }
+    foreach ($n in $names) {
+        $v = ($wallets.PSObject.Properties[$n].Value)
+        Write-Host "  $n : $v EAGL"
+    }
 }
 
 function Show-Balance($name) {
-    if (-not $wallets.ContainsKey($name)) { Write-Host "❌ No wallet '$name'"; return }
-    Write-Host "$name has $($wallets[$name]) EAGL."
+    if (-not ($wallets.PSObject.Properties.Name -contains $name)) {
+        Write-Host "❌ No wallet '$name'"; return
+    }
+    $v = $wallets.PSObject.Properties[$name].Value
+    Write-Host "$name has $v EAGL."
 }
 
 function Transfer($from,$to,[decimal]$amount) {
-    if (-not $wallets.ContainsKey($from) -or -not $wallets.ContainsKey($to)) {
+    if (-not ($wallets.PSObject.Properties.Name -contains $from) -or
+        -not ($wallets.PSObject.Properties.Name -contains $to)) {
         Write-Host "❌ Invalid wallet(s)."; return
     }
-    if ($wallets[$from] -lt $amount) { Write-Host "❌ Insufficient funds."; return }
-    $wallets[$from] -= $amount
-    $wallets[$to]   += $amount
+    $fromBal = [decimal]$wallets.PSObject.Properties[$from].Value
+    $toBal   = [decimal]$wallets.PSObject.Properties[$to].Value
+    if ($fromBal -lt $amount) { Write-Host "❌ Insufficient funds."; return }
+    $wallets.PSObject.Properties[$from].Value = $fromBal - $amount
+    $wallets.PSObject.Properties[$to].Value   = $toBal + $amount
     Save-Wallets
     Write-Host "✅ Transferred $amount EAGL from $from → $to."
 }
@@ -106,8 +123,9 @@ Write-Host "EAGLCOIN CLI - Type 'help' for commands (hidden by default)."
 while ($true) {
     $inputLine = Read-Host "EAGL>"
     if ([string]::IsNullOrWhiteSpace($inputLine)) { continue }
-    $parts = -split '\s+', $inputLine.Trim()
+    $parts = $inputLine.Trim() -split '\s+'
     $cmd = ($parts[0] -as [string]).ToLower()
+
     switch ($cmd) {
         'help'     { Show-Help }
         'create'   { if ($parts.Count -ge 2) { Create-Wallet $parts[1] } else { Write-Host "Usage: create <name>" } }
