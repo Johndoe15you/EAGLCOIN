@@ -30,7 +30,7 @@ function Load-Wallets {
         if ($null -eq $objs) { return @() }
         if ($objs -is [System.Array]) { return $objs } else { return ,$objs }
     } catch {
-        Write-Host "⚠️ Error reading $WalletsFile: $($_.Exception.Message)"
+        Write-Host "⚠️ Error reading ${WalletsFile}: $($_.Exception.Message)"
         return @()
     }
 }
@@ -41,7 +41,7 @@ function Save-Wallets([object[]]$wallets) {
         $json | Out-File -FilePath $WalletsFile -Encoding UTF8
         return $true
     } catch {
-        Write-Host "❌ Error writing $WalletsFile: $($_.Exception.Message)"
+        Write-Host "❌ Error writing ${WalletsFile}: $($_.Exception.Message)"
         return $false
     }
 }
