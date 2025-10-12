@@ -1,24 +1,28 @@
 # ========================================
 # EAGL Node - Minimal HTTP Blockchain Node
 # ========================================
-# Version: 2.0 (for Wallet CLI v2)
+# Version: 2.1 (relative-path version)
 # ========================================
 
 param (
-    [int]$Port = 8080,
-    [string]$DataDir = "$PSScriptRoot\data"
+    [int]$Port = 21801,
+    [string]$Root = "$PSScriptRoot"
 )
 
 $ErrorActionPreference = "SilentlyContinue"
+
+# Data directory
+$DataDir = Join-Path $Root "data"
 if (-not (Test-Path $DataDir)) { New-Item -ItemType Directory -Path $DataDir | Out-Null }
-$blockchainFile = Join-Path $DataDir "blockchain.json"
-if (-not (Test-Path $blockchainFile)) { '[]' | Out-File $blockchainFile }
+
+$BlockchainFile = Join-Path $DataDir "blockchain.json"
+if (-not (Test-Path $BlockchainFile)) { '[]' | Out-File $BlockchainFile }
 
 # === FUNCTIONS ===
 
 function Load-Blockchain {
     try {
-        $json = Get-Content $blockchainFile -Raw
+        $json = Get-Content $BlockchainFile -Raw
         if ($json.Trim() -eq "") { return @() }
         return $json | ConvertFrom-Json
     } catch {
@@ -29,7 +33,7 @@ function Load-Blockchain {
 
 function Save-Blockchain($chain) {
     try {
-        ($chain | ConvertTo-Json -Depth 5) | Out-File $blockchainFile
+        ($chain | ConvertTo-Json -Depth 5) | Out-File $BlockchainFile
     } catch {
         Write-Host "❌ Failed to save blockchain: $($_.Exception.Message)"
     }
@@ -39,12 +43,12 @@ function Add-Block($from, $to, $amount) {
     $chain = Load-Blockchain
     $height = if ($chain.Count -eq 0) { 1 } else { $chain[-1].height + 1 }
     $block = [ordered]@{
-        height = $height
+        height    = $height
         timestamp = (Get-Date).ToString("u")
-        from = $from
-        to = $to
-        amount = [double]$amount
-        hash = ([guid]::NewGuid().ToString().Replace("-", "")).Substring(0, 16)
+        from      = $from
+        to        = $to
+        amount    = [double]$amount
+        hash      = ([guid]::NewGuid().ToString().Replace("-", "")).Substring(0, 16)
     }
     $chain += $block
     Save-Blockchain $chain
@@ -69,7 +73,10 @@ function Start-Node($Port) {
 
         if ($req.HasEntityBody) {
             $reader = New-Object System.IO.StreamReader($req.InputStream)
-            $body = $reader.ReadToEnd() | ConvertFrom-Json
+            $body = $reader.ReadToEnd()
+            if ($body -and $body.Trim() -ne "") {
+                try { $body = $body | ConvertFrom-Json } catch { $body = $null }
+            }
             $reader.Close()
         }
 
@@ -79,7 +86,7 @@ function Start-Node($Port) {
                 $data = @{
                     status = "online"
                     blocks = $chain.Count
-                    port = $Port
+                    port   = $Port
                 }
                 $json = $data | ConvertTo-Json
             }
