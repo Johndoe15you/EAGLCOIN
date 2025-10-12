@@ -1,74 +1,178 @@
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 🦅 EAGLCOIN CLI — Connected Wallet
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ========================================
+# EAGLCOIN Wallet CLI
+# ========================================
+# Version: 2.0 - Stable + Node Support + Create Wallet
+# ========================================
 
-$NodeURL = "http://127.0.0.1:21801"
+$ErrorActionPreference = "SilentlyContinue"
+Clear-Host
+
+# === FILES & CONFIG ===
+$walletDir  = "$PSScriptRoot"
+$walletFile = Join-Path $walletDir "wallets.json"
+if (-not (Test-Path $walletFile)) { '{}' | Out-File $walletFile }
+
+# === FUNCTIONS ===
+
+function Load-Wallets {
+    try {
+        $json = Get-Content $walletFile -Raw
+        if ($json.Trim() -eq "") { return @{} }
+        $wallets = $json | ConvertFrom-Json
+        if ($wallets -isnot [hashtable]) {
+            $wallets = @{} + $wallets.PSObject.Properties.Name.ForEach({
+                @{ $_ = $wallets.$_ }
+            })
+        }
+        return $wallets
+    } catch {
+        Write-Host "⚠️ Error reading wallets.json: $($_.Exception.Message)"
+        return @{}
+    }
+}
+
+function Save-Wallets ($wallets) {
+    try {
+        ($wallets | ConvertTo-Json -Depth 5) | Out-File $walletFile
+        Write-Host "💾 Wallets saved."
+    } catch {
+        Write-Host "❌ Failed to save wallets: $($_.Exception.Message)"
+    }
+}
+
+function Create-Wallet {
+    param([string]$name)
+    if (-not $name) {
+        Write-Host "Usage: create <walletName>"
+        return
+    }
+    $wallets = Load-Wallets
+    if ($wallets.ContainsKey($name)) {
+        Write-Host "❌ Wallet '$name' already exists."
+        return
+    }
+
+    # Simulated keypair generation
+    $address = ("4" + (Get-Random -Minimum 10000000 -Maximum 99999999))
+    $viewKey = [guid]::NewGuid().ToString().Replace("-", "")
+    $spendKey = [guid]::NewGuid().ToString().Replace("-", "")
+
+    $wallets[$name] = [ordered]@{
+        Address   = $address
+        ViewKey   = $viewKey
+        SpendKey  = $spendKey
+        Balance   = 0
+    }
+
+    Save-Wallets $wallets
+    Write-Host "✅ Wallet '$name' created!"
+    Write-Host "   Address: $address"
+}
+
+function List-Wallets {
+    $wallets = Load-Wallets
+    if ($wallets.Count -eq 0) {
+        Write-Host "No wallets yet. Create one with 'create <name>'"
+        return
+    }
+
+    Write-Host "Wallets:"
+    foreach ($name in $wallets.Keys) {
+        $w = $wallets[$name]
+        Write-Host "  🪙 $name - $($w.Address)"
+    }
+}
+
+function Delete-Wallet {
+    param([string]$name)
+    $wallets = Load-Wallets
+    if (-not $wallets.ContainsKey($name)) {
+        Write-Host "❌ Wallet '$name' not found."
+        return
+    }
+    $wallets.Remove($name)
+    Save-Wallets $wallets
+    Write-Host "🗑️ Wallet '$name' deleted."
+}
+
+function Send-Coins {
+    param([string]$from, [string]$to, [double]$amount)
+    if (-not $from -or -not $to -or -not $amount) {
+        Write-Host "Usage: send <from> <to> <amount>"
+        return
+    }
+
+    $wallets = Load-Wallets
+    if (-not $wallets.ContainsKey($from)) {
+        Write-Host "❌ Wallet '$from' not found."
+        return
+    }
+    $wallet = $wallets[$from]
+
+    if ($wallet.Balance -lt $amount) {
+        Write-Host "❌ Not enough balance."
+        return
+    }
+
+    $wallet.Balance -= $amount
+    $wallets[$from] = $wallet
+    Save-Wallets $wallets
+
+    Write-Host "📤 Sent $amount EAGL from $from → $to"
+
+    # Send to node (if running)
+    try {
+        $body = @{from=$from;to=$to;amount=$amount} | ConvertTo-Json
+        Invoke-RestMethod -Uri "http://localhost:8080/submit" -Method Post -Body $body -ContentType "application/json" | Out-Null
+        Write-Host "✅ Transaction submitted to node."
+    } catch {
+        Write-Host "⚠️ Node offline or not reachable."
+    }
+}
+
+function Node-Status {
+    try {
+        $r = Invoke-RestMethod -Uri "http://localhost:8080/status"
+        Write-Host "🌐 Node: $($r.status) - Blocks: $($r.blocks)"
+    } catch {
+        Write-Host "⚠️ Node not reachable."
+    }
+}
 
 function Show-Help {
-@"
-🦅 EAGLCOIN CLI Commands:
-  help                  Show this message
-  node info             Display node status
-  balance <address>     Show address balance
-  send <from> <to> <amt>  Send coins
-  exit                  Quit
+    @"
+Available commands:
+  create <name>          - Create a new wallet
+  list                   - List all wallets
+  delete <name>          - Delete a wallet
+  send <from> <to> <amt> - Send EAGL
+  node status            - Check node connection
+  help                   - Show this help
+  exit                   - Exit CLI
 "@
 }
 
-function Get-NodeInfo {
-    try {
-        $info = Invoke-RestMethod -Uri "$NodeURL/get_info"
-        Write-Host "📡 Node Status: $($info.status)"
-        Write-Host "  Height: $($info.height)"
-        Write-Host "  Peers: $($info.peers)"
-        Write-Host "  Version: $($info.version)"
-    } catch { Write-Host "❌ Node not responding at $NodeURL" }
-}
-
-function Get-Balance {
-    param([string]$Addr)
-    if (-not $Addr) { Write-Host "Usage: balance <address>"; return }
-    try {
-        $bal = Invoke-RestMethod -Uri "$NodeURL/get_balance?address=$Addr"
-        Write-Host "💰 Balance for $Addr = $($bal.balance) EAGL"
-    } catch { Write-Host "❌ Failed to fetch balance." }
-}
-
-function Send-Tx {
-    param([string]$From, [string]$To, [decimal]$Amt)
-    if (-not $From -or -not $To -or -not $Amt) {
-        Write-Host "Usage: send <from> <to> <amt>"
-        return
-    }
-    try {
-        $payload = @{ from = $From; to = $To; amount = $Amt } | ConvertTo-Json
-        $res = Invoke-RestMethod -Uri "$NodeURL/send_tx" -Method Post -Body $payload -ContentType "application/json"
-        if ($res.status -eq "OK") {
-            Write-Host "✅ Sent $Amt EAGL from $From → $To"
-        } else {
-            Write-Host "❌ TX failed: $($res.error)"
-        }
-    } catch { Write-Host "❌ Error sending TX." }
-}
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
+# === MAIN CLI LOOP ===
 Write-Host "EAGLCOIN CLI - Type 'help' for commands."
 while ($true) {
     Write-Host -NoNewline "EAGL>: "
     $input = Read-Host
-    $parts = $input -split " "
+    if (-not $input) { continue }
+
+    $parts = $input.Split(' ')
     $cmd = $parts[0].ToLower()
 
     switch ($cmd) {
-        "help" { Show-Help }
+        "help"          { Show-Help }
+        "list"          { List-Wallets }
+        "create"        { Create-Wallet $parts[1] }
+        "delete"        { Delete-Wallet $parts[1] }
+        "send"          { Send-Coins $parts[1] $parts[2] $parts[3] }
         "node" {
-            if ($parts[1] -eq "info") { Get-NodeInfo }
-            else { Write-Host "Usage: node info" }
+            if ($parts.Length -ge 2 -and $parts[1] -eq "status") { Node-Status }
+            else { Write-Host "Usage: node status" }
         }
-        "balance" { Get-Balance $parts[1] }
-        "send" { Send-Tx $parts[1] $parts[2] $parts[3] }
-        "exit" { break }
-        default { Write-Host "[!] Unknown command. Type 'help'." }
+        "exit"          { break }
+        default         { Write-Host "[!] Unknown command. Type 'help'." }
     }
 }
