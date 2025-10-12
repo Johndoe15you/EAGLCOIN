@@ -1,72 +1,115 @@
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 🦅 EAGLCOIN Node — Lightweight JSON Node
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-param(
-    [int]$Port = 21801
+# ========================================
+# EAGL Node - Minimal HTTP Blockchain Node
+# ========================================
+# Version: 2.0 (for Wallet CLI v2)
+# ========================================
+
+param (
+    [int]$Port = 8080,
+    [string]$DataDir = "$PSScriptRoot\data"
 )
 
-$listener = New-Object System.Net.HttpListener
-$url = "http://0.0.0.0:$Port/"
-$listener.Prefixes.Add($url)
-$listener.Start()
+$ErrorActionPreference = "SilentlyContinue"
+if (-not (Test-Path $DataDir)) { New-Item -ItemType Directory -Path $DataDir | Out-Null }
+$blockchainFile = Join-Path $DataDir "blockchain.json"
+if (-not (Test-Path $blockchainFile)) { '[]' | Out-File $blockchainFile }
 
-Write-Host "🟢 EAGL Node online at $url"
+# === FUNCTIONS ===
 
-$BlockchainHeight = 0
-$Peers = 1
-$Version = "0.0.1-eagl"
-$Ledger = @{}  # address → balance
+function Load-Blockchain {
+    try {
+        $json = Get-Content $blockchainFile -Raw
+        if ($json.Trim() -eq "") { return @() }
+        return $json | ConvertFrom-Json
+    } catch {
+        Write-Host "⚠️ Error reading blockchain.json: $($_.Exception.Message)"
+        return @()
+    }
+}
 
-while ($true) {
-    $context = $listener.GetContext()
-    $request = $context.Request
-    $response = $context.Response
-    $response.ContentType = "application/json"
+function Save-Blockchain($chain) {
+    try {
+        ($chain | ConvertTo-Json -Depth 5) | Out-File $blockchainFile
+    } catch {
+        Write-Host "❌ Failed to save blockchain: $($_.Exception.Message)"
+    }
+}
 
-    switch -Regex ($request.Url.AbsolutePath) {
+function Add-Block($from, $to, $amount) {
+    $chain = Load-Blockchain
+    $height = if ($chain.Count -eq 0) { 1 } else { $chain[-1].height + 1 }
+    $block = [ordered]@{
+        height = $height
+        timestamp = (Get-Date).ToString("u")
+        from = $from
+        to = $to
+        amount = [double]$amount
+        hash = ([guid]::NewGuid().ToString().Replace("-", "")).Substring(0, 16)
+    }
+    $chain += $block
+    Save-Blockchain $chain
+    return $block
+}
 
-        "/get_info" {
-            $BlockchainHeight++
-            $json = @{
-                status = "OK"
-                height = $BlockchainHeight
-                peers = $Peers
-                version = $Version
-                timestamp = (Get-Date).ToString("o")
-            } | ConvertTo-Json -Depth 3
+function Start-Node($Port) {
+    $listener = [System.Net.HttpListener]::new()
+    $prefix = "http://0.0.0.0:$Port/"
+    $listener.Prefixes.Add($prefix)
+    $listener.Start()
+    Write-Host "🚀 EAGL Node started on port $Port"
+    Write-Host "Press Ctrl+C to stop."
+    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+    while ($true) {
+        $ctx = $listener.GetContext()
+        $req = $ctx.Request
+        $res = $ctx.Response
+        $path = $req.Url.AbsolutePath.ToLower()
+        $body = $null
+
+        if ($req.HasEntityBody) {
+            $reader = New-Object System.IO.StreamReader($req.InputStream)
+            $body = $reader.ReadToEnd() | ConvertFrom-Json
+            $reader.Close()
         }
 
-        "/get_balance" {
-            $address = $request.QueryString["address"]
-            $bal = if ($Ledger.ContainsKey($address)) { $Ledger[$address] } else { 0 }
-            $json = @{ address = $address; balance = $bal } | ConvertTo-Json
-        }
+        switch ($path) {
+            "/status" {
+                $chain = Load-Blockchain
+                $data = @{
+                    status = "online"
+                    blocks = $chain.Count
+                    port = $Port
+                }
+                $json = $data | ConvertTo-Json
+            }
 
-        "/send_tx" {
-            $body = New-Object IO.StreamReader($request.InputStream)
-            $data = $body.ReadToEnd() | ConvertFrom-Json
-            $from = $data.from
-            $to = $data.to
-            $amt = [decimal]$data.amount
+            "/submit" {
+                if ($null -eq $body) {
+                    $json = @{ error = "Missing body" } | ConvertTo-Json
+                } else {
+                    $block = Add-Block $body.from $body.to $body.amount
+                    $json = @{ result = "accepted"; height = $block.height } | ConvertTo-Json
+                    Write-Host "💸 TX from $($body.from) → $($body.to) : $($body.amount) EAGL"
+                }
+            }
 
-            if (-not $Ledger.ContainsKey($from)) { $Ledger[$from] = 100 } # airdrop
-            if ($Ledger[$from] -ge $amt) {
-                $Ledger[$from] -= $amt
-                if (-not $Ledger.ContainsKey($to)) { $Ledger[$to] = 0 }
-                $Ledger[$to] += $amt
-                $json = @{ status = "OK"; tx = "mock"; from = $from; to = $to; amount = $amt } | ConvertTo-Json
-            } else {
-                $json = @{ status = "FAIL"; error = "Insufficient balance" } | ConvertTo-Json
+            "/chain" {
+                $json = (Load-Blockchain) | ConvertTo-Json -Depth 5
+            }
+
+            default {
+                $json = @{ error = "Unknown route" } | ConvertTo-Json
             }
         }
 
-        default {
-            $json = @{ status = "ERROR"; message = "Unknown endpoint" } | ConvertTo-Json
-        }
+        $buffer = [System.Text.Encoding]::UTF8.GetBytes($json)
+        $res.ContentLength64 = $buffer.Length
+        $res.ContentType = "application/json"
+        $res.OutputStream.Write($buffer, 0, $buffer.Length)
+        $res.OutputStream.Close()
     }
-
-    $buffer = [Text.Encoding]::UTF8.GetBytes($json)
-    $response.ContentLength64 = $buffer.Length
-    $response.OutputStream.Write($buffer, 0, $buffer.Length)
-    $response.OutputStream.Close()
 }
+
+# === START ===
+Start-Node -Port $Port
