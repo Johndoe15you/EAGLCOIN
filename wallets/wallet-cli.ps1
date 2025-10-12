@@ -67,7 +67,11 @@ function Create-Wallet($name, [decimal]$initial = 100) {
         balance = [decimal]$initial
     }
 
-    $wallets += $new
+    if ($wallets -isnot [System.Collections.IEnumerable]) {
+    $wallets = @($wallets)
+}
+$wallets = @($wallets) + @($new)
+
     if (Save-Wallets -wallets $wallets) {
         Write-Host "✅ Wallet '$name' created!"
         Write-Host "   Address: $($new.address)"
