@@ -57,7 +57,7 @@ function Add-Block($from, $to, $amount) {
 
 function Start-Node($Port) {
     $listener = [System.Net.HttpListener]::new()
-    $prefix = "http://0.0.0.0:$Port/"
+    $prefix = "http://127.0.0.1:$Port/"
     $listener.Prefixes.Add($prefix)
     $listener.Start()
     Write-Host "🚀 EAGL Node started on port $Port"
