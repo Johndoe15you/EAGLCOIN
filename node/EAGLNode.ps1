@@ -125,7 +125,7 @@ function Start-Node($Port) {
         $res.OutputStream.Write($buffer, 0, $buffer.Length)
         $res.OutputStream.Close()
     }
-}
+
 
 # === START ===
 Start-Node -Port $Port
