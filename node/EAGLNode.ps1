@@ -22,11 +22,12 @@ if (-not (Test-Path $BlockchainFile)) { '[]' | Out-File $BlockchainFile -Encodin
 
 function Load-Blockchain {
     try {
-        $json = Get-Content $BlockchainFile -Raw -ErrorAction Stop
+        if (-not (Test-Path $BlockchainFile)) { '[]' | Out-File $BlockchainFile -Encoding utf8 }
+        $json = Get-Content $BlockchainFile -Raw -Encoding UTF8
         if ([string]::IsNullOrWhiteSpace($json)) { return @() }
-        $chain = $json | ConvertFrom-Json
-        if ($chain -isnot [System.Collections.IEnumerable]) { $chain = @($chain) }
-        return @($chain)
+        $data = $json | ConvertFrom-Json
+        if ($data -isnot [System.Collections.IEnumerable]) { $data = @($data) }
+        return @($data)
     } catch {
         Write-Host "⚠️ Error reading blockchain.json: $($_.Exception.Message)"
         return @()
@@ -35,7 +36,11 @@ function Load-Blockchain {
 
 function Save-Blockchain($chain) {
     try {
-        ($chain | ConvertTo-Json -Depth 6 -Compress:$false) | Out-File $BlockchainFile -Encoding utf8
+        $json = $chain | ConvertTo-Json -Depth 8 -Compress:$false
+        # Write atomically — overwrite safely and as UTF8
+        $tempFile = "$BlockchainFile.tmp"
+        $json | Out-File $tempFile -Encoding utf8
+        Move-Item -Force $tempFile $BlockchainFile
     } catch {
         Write-Host "❌ Failed to save blockchain: $($_.Exception.Message)"
     }
