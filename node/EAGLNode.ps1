@@ -1,8 +1,8 @@
-# ============================================
+# ========================================
 # EAGL Node - Minimal HTTP Blockchain Node
-# ============================================
-# Version: 2.5 (Pretty + Stable Append)
-# ============================================
+# ========================================
+# Version: 3.0 - fixed JSON writing + stable server
+# ========================================
 
 param (
     [int]$Port = 21801,
@@ -11,18 +11,16 @@ param (
 
 $ErrorActionPreference = "SilentlyContinue"
 
-# === Setup paths ===
+# === Paths ===
 $DataDir = Join-Path $Root "data"
 if (-not (Test-Path $DataDir)) { New-Item -ItemType Directory -Path $DataDir | Out-Null }
 
 $BlockchainFile = Join-Path $DataDir "blockchain.json"
 if (-not (Test-Path $BlockchainFile)) { '[]' | Out-File $BlockchainFile -Encoding utf8 }
 
-# === Helper functions ===
-
+# === Helper Functions ===
 function Load-Blockchain {
     try {
-        if (-not (Test-Path $BlockchainFile)) { '[]' | Out-File $BlockchainFile -Encoding utf8 }
         $json = Get-Content $BlockchainFile -Raw -Encoding UTF8
         if ([string]::IsNullOrWhiteSpace($json)) { return @() }
         $data = $json | ConvertFrom-Json
@@ -36,11 +34,11 @@ function Load-Blockchain {
 
 function Save-Blockchain($chain) {
     try {
-        $json = $chain | ConvertTo-Json -Depth 8 -Compress:$false
-        # Write atomically — overwrite safely and as UTF8
-        $tempFile = "$BlockchainFile.tmp"
-        $json | Out-File $tempFile -Encoding utf8
-        Move-Item -Force $tempFile $BlockchainFile
+        $json = $chain | ConvertTo-Json -Depth 8
+        $tmp = "$BlockchainFile.tmp"
+        $json | Out-File $tmp -Encoding utf8
+        Move-Item -Force $tmp $BlockchainFile
+        Write-Host "💾 Blockchain saved (${($chain.Count)} blocks)"
     } catch {
         Write-Host "❌ Failed to save blockchain: $($_.Exception.Message)"
     }
@@ -51,86 +49,81 @@ function Add-Block($from, $to, $amount) {
     $height = if ($chain.Count -eq 0) { 1 } else { $chain[-1].height + 1 }
     $block = [ordered]@{
         height    = $height
-        timestamp = (Get-Date).ToString("yyyy-MM-dd HH:mm:ssZ")
+        timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ssZ")
         from      = $from
         to        = $to
         amount    = [double]$amount
-        hash      = ([guid]::NewGuid().ToString().Replace("-", "")).Substring(0, 16)
+        hash      = ([guid]::NewGuid().ToString("N")).Substring(0, 16)
     }
     $chain += $block
     Save-Blockchain $chain
-    Write-Host "💸 TX added: $($from) → $($to) ($amount EAGL) [Block $height]"
     return $block
 }
 
-# === Start Node ===
-
-function Start-Node($Port) {
+# === Start the Node ===
+function Start-Node {
+    param($Port)
     $listener = [System.Net.HttpListener]::new()
-    $prefix = "http://127.0.0.1:$Port/"
-    $listener.Prefixes.Add($prefix)
+    $listener.Prefixes.Add("http://0.0.0.0:$Port/")
     $listener.Start()
+
     Write-Host "🚀 EAGL Node started on port $Port"
-    Write-Host "Press Ctrl+C to stop."
     Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-    while ($true) {
-        $ctx = $listener.GetContext()
-        $req = $ctx.Request
-        $res = $ctx.Response
-        $path = $req.Url.AbsolutePath.ToLower()
-        $body = $null
+    while ($listener.IsListening) {
+        try {
+            $ctx = $listener.GetContext()
+            $req = $ctx.Request
+            $res = $ctx.Response
+            $path = $req.Url.AbsolutePath.ToLower()
 
-        if ($req.HasEntityBody) {
-            $reader = New-Object System.IO.StreamReader($req.InputStream)
-            $body = $reader.ReadToEnd()
-            if ($body -and $body.Trim() -ne "") {
-                try { $body = $body | ConvertFrom-Json } catch { $body = $null }
-            }
-            $reader.Close()
-        }
-
-        switch ($path) {
-            "/status" {
-                $chain = Load-Blockchain
-                $data = @{
-                    status = "online"
-                    blocks = $chain.Count
-                    port   = $Port
-                }
-                $json = $data | ConvertTo-Json -Depth 5 -Compress:$false
-            }
-
-            "/submit" {
-                if ($null -eq $body -or -not $body.from -or -not $body.to -or -not $body.amount) {
-                    $json = @{ error = "Missing or invalid body" } | ConvertTo-Json -Depth 3
-                } else {
-                    $block = Add-Block $body.from $body.to $body.amount
-                    $json = @{
-                        result = "accepted"
-                        height = $block.height
-                        hash   = $block.hash
-                    } | ConvertTo-Json -Depth 3 -Compress:$false
+            $body = $null
+            if ($req.HasEntityBody) {
+                $reader = New-Object System.IO.StreamReader($req.InputStream)
+                $bodyText = $reader.ReadToEnd()
+                $reader.Close()
+                if ($bodyText.Trim() -ne "") {
+                    try { $body = $bodyText | ConvertFrom-Json } catch { $body = $null }
                 }
             }
 
-            "/chain" {
-                $chain = Load-Blockchain
-                $json = $chain | ConvertTo-Json -Depth 6 -Compress:$false
+            switch ($path) {
+                "/status" {
+                    $chain = Load-Blockchain
+                    $data = @{ status = "online"; blocks = $chain.Count; port = $Port }
+                    $json = $data | ConvertTo-Json
+                }
+
+                "/chain" {
+                    $chain = Load-Blockchain
+                    $json = $chain | ConvertTo-Json -Depth 8
+                }
+
+                "/submit" {
+                    if ($null -eq $body) {
+                        $json = @{ error = "Missing JSON body" } | ConvertTo-Json
+                    } else {
+                        $block = Add-Block $body.from $body.to $body.amount
+                        Write-Host "💸 TX from $($body.from) → $($body.to) : $($body.amount) EAGL"
+                        $json = @{ result = "accepted"; height = $block.height } | ConvertTo-Json
+                    }
+                }
+
+                default {
+                    $json = @{ error = "Unknown route" } | ConvertTo-Json
+                }
             }
 
-            default {
-                $json = @{ error = "Unknown route" } | ConvertTo-Json -Depth 3
-            }
+            $bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+            $res.ContentLength64 = $bytes.Length
+            $res.ContentType = "application/json"
+            $res.OutputStream.Write($bytes, 0, $bytes.Length)
+            $res.OutputStream.Close()
+        } catch {
+            Write-Host "⚠️ Request error: $($_.Exception.Message)"
         }
-
-        $buffer = [System.Text.Encoding]::UTF8.GetBytes($json)
-        $res.ContentLength64 = $buffer.Length
-        $res.ContentType = "application/json"
-        $res.OutputStream.Write($buffer, 0, $buffer.Length)
-        $res.OutputStream.Close()
     }
 }
 
-# === Launch ===
+# === RUN ===
 Start-Node -Port $Port
