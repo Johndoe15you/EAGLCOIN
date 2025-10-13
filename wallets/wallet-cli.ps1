@@ -129,19 +129,49 @@ function Node-Chain {
 while ($true) {
     Write-Host -NoNewline "EAGL>: "
     $input = Read-Host
-    $args = $input.Split(" ")
+    $args = $input -split "\s+"
+
     switch ($args[0].ToLower()) {
-        "create" { Create-Wallet $args[1] }
-        "list"   { List-Wallets }
-        "transfer" { Transfer $args[1] $args[2] [double]$args[3] }
+        "create" {
+            if ($args.Count -lt 2) { Write-Host "Usage: create <wallet_name>"; continue }
+            Create-Wallet $args[1]
+        }
+
+        "list" { List-Wallets }
+
+        "transfer" {
+            if ($args.Count -lt 4) { Write-Host "Usage: transfer <from> <to> <amount>"; continue }
+            $fromName = $args[1]
+            $toName   = $args[2]
+            $amount   = 0
+            if (-not [double]::TryParse($args[3], [ref]$amount)) {
+                Write-Host "⚠️ Amount must be a number"
+                continue
+            }
+            Transfer $fromName $toName $amount
+        }
+
         "node" {
+            if ($args.Count -lt 2) { Write-Host "Usage: node <status|chain>"; continue }
             switch ($args[1].ToLower()) {
                 "status" { Node-Status }
                 "chain"  { Node-Chain }
-                default { Write-Host "Unknown node command" }
+                default  { Write-Host "Unknown node command" }
             }
         }
+
         "exit" { break }
-        default { Write-Host "Unknown command" }
+
+        "help" {
+            Write-Host "Commands:"
+            Write-Host "  create <wallet_name>      - Create a new wallet"
+            Write-Host "  list                      - List all wallets"
+            Write-Host "  transfer <from> <to> <amount> - Transfer EAGL between wallets"
+            Write-Host "  node status               - Show node status"
+            Write-Host "  node chain                - Show blockchain"
+            Write-Host "  exit                      - Quit CLI"
+        }
+
+        default { Write-Host "Unknown command. Type 'help'." }
     }
 }
