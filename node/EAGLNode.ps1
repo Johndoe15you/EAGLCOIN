@@ -4,7 +4,7 @@ $ErrorActionPreference = "Stop"
 
 # Configuration
 $port = 21801
-$storagePath = "C:\Users\rocke\EAGLCOIN\blockchain.json"
+$storagePath = "C:\Users\rocke\EAGLCOIN\node\data\blockchain.json"
 
 # Load existing blockchain or initialize
 if (Test-Path $storagePath) {
