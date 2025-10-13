@@ -46,8 +46,23 @@ function Create-Wallet($name) {
         balance = 100
     }
 
-    $wallets = @($wallets + $wallet)
+    $wallets = @($wallets)
+    $wallets += $wallet
+
     Save-Wallets $wallets
+
+    Write-Host "✅ Wallet '$name' created!"
+    Write-Host "   Address: $address"
+    Write-Host "   Balance: 100 EAGL"
+}
+
+function Update-Wallet($wallet) {
+    $wallets = Load-Wallets | Where-Object { $_.name -ne $wallet.name }
+    $wallets = @($wallets)
+    $wallets += $wallet
+    Save-Wallets $wallets
+}
+
 
     Write-Host "✅ Wallet '$name' created!"
     Write-Host "   Address: $address"
