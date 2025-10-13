@@ -1,8 +1,8 @@
-# ========================================
+# ============================================
 # EAGL Node - Minimal HTTP Blockchain Node
-# ========================================
-# Version: 2.1 (relative-path version)
-# ========================================
+# ============================================
+# Version: 2.5 (Pretty + Stable Append)
+# ============================================
 
 param (
     [int]$Port = 21801,
@@ -11,20 +11,22 @@ param (
 
 $ErrorActionPreference = "SilentlyContinue"
 
-# Data directory
+# === Setup paths ===
 $DataDir = Join-Path $Root "data"
 if (-not (Test-Path $DataDir)) { New-Item -ItemType Directory -Path $DataDir | Out-Null }
 
 $BlockchainFile = Join-Path $DataDir "blockchain.json"
-if (-not (Test-Path $BlockchainFile)) { '[]' | Out-File $BlockchainFile }
+if (-not (Test-Path $BlockchainFile)) { '[]' | Out-File $BlockchainFile -Encoding utf8 }
 
-# === FUNCTIONS ===
+# === Helper functions ===
 
 function Load-Blockchain {
     try {
-        $json = Get-Content $BlockchainFile -Raw
-        if ($json.Trim() -eq "") { return @() }
-        return $json | ConvertFrom-Json
+        $json = Get-Content $BlockchainFile -Raw -ErrorAction Stop
+        if ([string]::IsNullOrWhiteSpace($json)) { return @() }
+        $chain = $json | ConvertFrom-Json
+        if ($chain -isnot [System.Collections.IEnumerable]) { $chain = @($chain) }
+        return @($chain)
     } catch {
         Write-Host "⚠️ Error reading blockchain.json: $($_.Exception.Message)"
         return @()
@@ -33,7 +35,7 @@ function Load-Blockchain {
 
 function Save-Blockchain($chain) {
     try {
-        ($chain | ConvertTo-Json -Depth 5) | Out-File $BlockchainFile
+        ($chain | ConvertTo-Json -Depth 6 -Compress:$false) | Out-File $BlockchainFile -Encoding utf8
     } catch {
         Write-Host "❌ Failed to save blockchain: $($_.Exception.Message)"
     }
@@ -44,7 +46,7 @@ function Add-Block($from, $to, $amount) {
     $height = if ($chain.Count -eq 0) { 1 } else { $chain[-1].height + 1 }
     $block = [ordered]@{
         height    = $height
-        timestamp = (Get-Date).ToString("u")
+        timestamp = (Get-Date).ToString("yyyy-MM-dd HH:mm:ssZ")
         from      = $from
         to        = $to
         amount    = [double]$amount
@@ -52,8 +54,11 @@ function Add-Block($from, $to, $amount) {
     }
     $chain += $block
     Save-Blockchain $chain
+    Write-Host "💸 TX added: $($from) → $($to) ($amount EAGL) [Block $height]"
     return $block
 }
+
+# === Start Node ===
 
 function Start-Node($Port) {
     $listener = [System.Net.HttpListener]::new()
@@ -88,34 +93,29 @@ function Start-Node($Port) {
                     blocks = $chain.Count
                     port   = $Port
                 }
-                $json = $data | ConvertTo-Json
+                $json = $data | ConvertTo-Json -Depth 5 -Compress:$false
             }
 
             "/submit" {
-                if ($null -eq $body) {
-                    $json = @{ error = "Missing body" } | ConvertTo-Json
+                if ($null -eq $body -or -not $body.from -or -not $body.to -or -not $body.amount) {
+                    $json = @{ error = "Missing or invalid body" } | ConvertTo-Json -Depth 3
                 } else {
                     $block = Add-Block $body.from $body.to $body.amount
-                    $json = @{ result = "accepted"; height = $block.height } | ConvertTo-Json
-                    Write-Host "💸 TX from $($body.from) → $($body.to) : $($body.amount) EAGL"
+                    $json = @{
+                        result = "accepted"
+                        height = $block.height
+                        hash   = $block.hash
+                    } | ConvertTo-Json -Depth 3 -Compress:$false
                 }
             }
 
             "/chain" {
-    $chain = Load-Blockchain
-    if ($chain.Count -eq 0) {
-        $json = @() | ConvertTo-Json
-    } elseif ($chain.Count -eq 1) {
-        $json = $chain[0] | ConvertTo-Json -Depth 5
-    } else {
-        $json = $chain | ConvertTo-Json -Depth 5
-    }
-
-
+                $chain = Load-Blockchain
+                $json = $chain | ConvertTo-Json -Depth 6 -Compress:$false
             }
 
             default {
-                $json = @{ error = "Unknown route" } | ConvertTo-Json
+                $json = @{ error = "Unknown route" } | ConvertTo-Json -Depth 3
             }
         }
 
@@ -127,5 +127,5 @@ function Start-Node($Port) {
     }
 }
 
-# === START ===
+# === Launch ===
 Start-Node -Port $Port
