@@ -1,4 +1,4 @@
-# EAGL Node Server — persistent blockchain with proper array handling
+# EAGL Node Server — null-safe + persistent blockchain
 
 $ErrorActionPreference = "Stop"
 
@@ -15,6 +15,7 @@ if (Test-Path $storagePath) {
         } else {
             $blockchain = @()
         }
+        Write-Host "📂 Loaded blockchain with $($blockchain.Count) blocks."
     } catch {
         Write-Host "⚠️ Error reading blockchain.json — resetting blockchain."
         $blockchain = @()
@@ -25,7 +26,11 @@ if (Test-Path $storagePath) {
 
 function Save-Blockchain {
     param([array]$chain)
-    $chain | ConvertTo-Json -Depth 5 | Set-Content -Path $storagePath -Encoding UTF8
+    try {
+        $chain | ConvertTo-Json -Depth 5 | Set-Content -Path $storagePath -Encoding UTF8
+    } catch {
+        Write-Host "⚠️ Error saving blockchain: $($_.Exception.Message)"
+    }
 }
 
 function Add-Block {
@@ -42,6 +47,7 @@ function Add-Block {
 
     $blockchain += $block
     Save-Blockchain $blockchain
+    Write-Host "🧱 Block #$($block.height) added: $($block.from) → $($block.to) $($block.amount)"
     return $block
 }
 
@@ -78,19 +84,33 @@ try {
         $request = $context.Request
         $response = $context.Response
 
-        if ($request.HttpMethod -eq "POST" -and $request.Url.AbsolutePath -eq "/add") {
-            $body = New-Object IO.StreamReader($request.InputStream, $request.ContentEncoding)
-            $json = $body.ReadToEnd() | ConvertFrom-Json
-            $block = Add-Block $json.from $json.to $json.amount
-            $result = $block | ConvertTo-Json -Depth 5
-        } else {
-            $result = Get-Response $request.Url.AbsolutePath
-        }
+        try {
+            if ($request.HttpMethod -eq "POST" -and $request.Url.AbsolutePath -eq "/add") {
+                $body = New-Object IO.StreamReader($request.InputStream, $request.ContentEncoding)
+                $raw = $body.ReadToEnd()
+                if ([string]::IsNullOrWhiteSpace($raw)) {
+                    $result = '{"error":"Empty request body"}'
+                } else {
+                    $json = $raw | ConvertFrom-Json
+                    $block = Add-Block $json.from $json.to $json.amount
+                    $result = $block | ConvertTo-Json -Depth 5
+                }
+            } else {
+                $result = Get-Response $request.Url.AbsolutePath
+            }
 
-        $buffer = [System.Text.Encoding]::UTF8.GetBytes($result)
-        $response.ContentLength64 = $buffer.Length
-        $response.OutputStream.Write($buffer, 0, $buffer.Length)
-        $response.OutputStream.Close()
+            if (-not $result) {
+                $result = '{"error":"No response generated"}'
+            }
+
+            $buffer = [System.Text.Encoding]::UTF8.GetBytes($result)
+            $response.ContentLength64 = $buffer.Length
+            $response.OutputStream.Write($buffer, 0, $buffer.Length)
+            $response.OutputStream.Close()
+        }
+        catch {
+            Write-Host "⚠️ Request error: $($_.Exception.Message)"
+        }
     }
 }
 catch {
