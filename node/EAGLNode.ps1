@@ -102,7 +102,16 @@ function Start-Node($Port) {
             }
 
             "/chain" {
-                $json = (Load-Blockchain) | ConvertTo-Json -Depth 5
+    $chain = Load-Blockchain
+    if ($chain.Count -eq 0) {
+        $json = @() | ConvertTo-Json
+    } elseif ($chain.Count -eq 1) {
+        $json = $chain[0] | ConvertTo-Json -Depth 5
+    } else {
+        $json = $chain | ConvertTo-Json -Depth 5
+    }
+}
+
             }
 
             default {
