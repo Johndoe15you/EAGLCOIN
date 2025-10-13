@@ -59,7 +59,7 @@ function Create-Wallet($name, [decimal]$initial = 100) {
     }
 
     # simple address generator (not crypto-secure; for testnet only)
-    $addr = (Get-Random -Minimum 100000000 -Maximum 999999999).ToString()
+    $addr = (Get-Random -Minimum 10000000000000000 -Maximum 99999999999999999).ToString()
 
     $new = [PSCustomObject]@{
         name    = $name
@@ -163,7 +163,7 @@ function Node-SubmitTx($fromName, $toName, [decimal]$amount) {
     if (-not $wf -or -not $wt) { Write-Host "❌ Sender or receiver not found."; return }
     $payload = @{ from = $wf.address; to = $wt.address; amount = $amount } | ConvertTo-Json
     try {
-        $resp = Invoke-RestMethod -Method Post -Uri ($NodeHost.TrimEnd('/') + "/submit") -Body $payload -ContentType "application/json" -ErrorAction Stop
+        $resp = Invoke-RestMethod -Method Post -Uri ($NodeHost.TrimEnd('/') + "/add") -Body $payload -ContentType "application/json" -ErrorAction Stop
         Write-Host "📤 Node response: $($resp | ConvertTo-Json -Depth 2)"
     } catch {
         Write-Host "❌ Submit failed: $($_.Exception.Message)"
