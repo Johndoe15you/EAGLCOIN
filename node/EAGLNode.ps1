@@ -1,129 +1,101 @@
-# ========================================
-# EAGL Node - Minimal HTTP Blockchain Node
-# ========================================
-# Version: 3.0 - fixed JSON writing + stable server
-# ========================================
+# EAGL Node Server — persistent blockchain with proper array handling
 
-param (
-    [int]$Port = 21801,
-    [string]$Root = "$PSScriptRoot"
-)
+$ErrorActionPreference = "Stop"
 
-$ErrorActionPreference = "SilentlyContinue"
+# Configuration
+$port = 21801
+$storagePath = "C:\Users\rocke\EAGLCOIN\blockchain.json"
 
-# === Paths ===
-$DataDir = Join-Path $Root "data"
-if (-not (Test-Path $DataDir)) { New-Item -ItemType Directory -Path $DataDir | Out-Null }
-
-$BlockchainFile = Join-Path $DataDir "blockchain.json"
-if (-not (Test-Path $BlockchainFile)) { '[]' | Out-File $BlockchainFile -Encoding utf8 }
-
-# === Helper Functions ===
-function Load-Blockchain {
+# Load existing blockchain or initialize
+if (Test-Path $storagePath) {
     try {
-        $json = Get-Content $BlockchainFile -Raw -Encoding UTF8
-        if ([string]::IsNullOrWhiteSpace($json)) { return @() }
-        $data = $json | ConvertFrom-Json
-        if ($data -isnot [System.Collections.IEnumerable]) { $data = @($data) }
-        return @($data)
+        $json = Get-Content $storagePath -Raw | ConvertFrom-Json
+        if ($json -is [System.Collections.IEnumerable]) {
+            $blockchain = @($json)
+        } else {
+            $blockchain = @()
+        }
     } catch {
-        Write-Host "⚠️ Error reading blockchain.json: $($_.Exception.Message)"
-        return @()
+        Write-Host "⚠️ Error reading blockchain.json — resetting blockchain."
+        $blockchain = @()
     }
+} else {
+    $blockchain = @()
 }
 
-function Save-Blockchain($chain) {
-    try {
-        $json = $chain | ConvertTo-Json -Depth 8
-        $tmp = "$BlockchainFile.tmp"
-        $json | Out-File $tmp -Encoding utf8
-        Move-Item -Force $tmp $BlockchainFile
-        Write-Host "💾 Blockchain saved (${($chain.Count)} blocks)"
-    } catch {
-        Write-Host "❌ Failed to save blockchain: $($_.Exception.Message)"
-    }
+function Save-Blockchain {
+    param([array]$chain)
+    $chain | ConvertTo-Json -Depth 5 | Set-Content -Path $storagePath -Encoding UTF8
 }
 
-function Add-Block($from, $to, $amount) {
-    $chain = Load-Blockchain
-    $height = if ($chain.Count -eq 0) { 1 } else { $chain[-1].height + 1 }
-    $block = [ordered]@{
-        height    = $height
+function Add-Block {
+    param($from, $to, $amount)
+
+    $block = [PSCustomObject]@{
+        height    = $blockchain.Count + 1
         timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ssZ")
         from      = $from
         to        = $to
         amount    = [double]$amount
-        hash      = ([guid]::NewGuid().ToString("N")).Substring(0, 16)
+        hash      = (Get-Random -Maximum 99999999).ToString("X")
     }
-    $chain += $block
-    Save-Blockchain $chain
+
+    $blockchain += $block
+    Save-Blockchain $blockchain
     return $block
 }
 
-# === Start the Node ===
-function Start-Node {
-    param($Port)
-    $listener = [System.Net.HttpListener]::new()
-    $listener.Prefixes.Add("http://127.0.0.1:$Port/")
-    $listener.Start()
+function Get-Response {
+    param([string]$path)
 
-    Write-Host "🚀 EAGL Node started on port $Port"
-    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
-    while ($listener.IsListening) {
-        try {
-            $ctx = $listener.GetContext()
-            $req = $ctx.Request
-            $res = $ctx.Response
-            $path = $req.Url.AbsolutePath.ToLower()
-
-            $body = $null
-            if ($req.HasEntityBody) {
-                $reader = New-Object System.IO.StreamReader($req.InputStream)
-                $bodyText = $reader.ReadToEnd()
-                $reader.Close()
-                if ($bodyText.Trim() -ne "") {
-                    try { $body = $bodyText | ConvertFrom-Json } catch { $body = $null }
-                }
-            }
-
-            switch ($path) {
-                "/status" {
-                    $chain = Load-Blockchain
-                    $data = @{ status = "online"; blocks = $chain.Count; port = $Port }
-                    $json = $data | ConvertTo-Json
-                }
-
-                "/chain" {
-                    $chain = Load-Blockchain
-                    $json = $chain | ConvertTo-Json -Depth 8
-                }
-
-                "/submit" {
-                    if ($null -eq $body) {
-                        $json = @{ error = "Missing JSON body" } | ConvertTo-Json
-                    } else {
-                        $block = Add-Block $body.from $body.to $body.amount
-                        Write-Host "💸 TX from $($body.from) → $($body.to) : $($body.amount) EAGL"
-                        $json = @{ result = "accepted"; height = $block.height } | ConvertTo-Json
-                    }
-                }
-
-                default {
-                    $json = @{ error = "Unknown route" } | ConvertTo-Json
-                }
-            }
-
-            $bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
-            $res.ContentLength64 = $bytes.Length
-            $res.ContentType = "application/json"
-            $res.OutputStream.Write($bytes, 0, $bytes.Length)
-            $res.OutputStream.Close()
-        } catch {
-            Write-Host "⚠️ Request error: $($_.Exception.Message)"
+    switch -Wildcard ($path) {
+        "/chain" {
+            return ($blockchain | ConvertTo-Json -Depth 5)
+        }
+        "/status" {
+            return (@{
+                height = $blockchain.Count
+                port   = $port
+            } | ConvertTo-Json)
+        }
+        default {
+            return '{"error":"Unknown route"}'
         }
     }
 }
 
-# === RUN ===
-Start-Node -Port $Port
+# Simple HTTP listener
+Add-Type -AssemblyName System.Net.HttpListener
+$listener = [System.Net.HttpListener]::new()
+$listener.Prefixes.Add("http://*:$port/")
+$listener.Start()
+Write-Host "🚀 EAGL Node started on port $port"
+Write-Host "Press Ctrl+C to stop."
+
+try {
+    while ($true) {
+        $context = $listener.GetContext()
+        $request = $context.Request
+        $response = $context.Response
+
+        if ($request.HttpMethod -eq "POST" -and $request.Url.AbsolutePath -eq "/add") {
+            $body = New-Object IO.StreamReader($request.InputStream, $request.ContentEncoding)
+            $json = $body.ReadToEnd() | ConvertFrom-Json
+            $block = Add-Block $json.from $json.to $json.amount
+            $result = $block | ConvertTo-Json -Depth 5
+        } else {
+            $result = Get-Response $request.Url.AbsolutePath
+        }
+
+        $buffer = [System.Text.Encoding]::UTF8.GetBytes($result)
+        $response.ContentLength64 = $buffer.Length
+        $response.OutputStream.Write($buffer, 0, $buffer.Length)
+        $response.OutputStream.Close()
+    }
+}
+catch {
+    Write-Host "❌ Node stopped or crashed: $($_.Exception.Message)"
+}
+finally {
+    $listener.Stop()
+}
