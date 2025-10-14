@@ -1,117 +1,67 @@
-# ========================================
-# EAGL Node - v2.3
-# ========================================
-
-param (
-    [int]$Port = 21801,
-    [string]$Root = "$PSScriptRoot"
-)
-
-$DataDir = Join-Path $Root "data"
-if (-not (Test-Path $DataDir)) { New-Item -ItemType Directory -Path $DataDir | Out-Null }
-
-$BlockchainFile = Join-Path $DataDir "blockchain.json"
-if (-not (Test-Path $BlockchainFile)) { '[]' | Out-File $BlockchainFile }
-
-function Load-Blockchain {
+# Load blockchain file
+$chainPath = Join-Path $PSScriptRoot "blockchain.json"
+if (Test-Path $chainPath) {
     try {
-        $json = Get-Content $BlockchainFile -Raw
-        if ($json.Trim() -eq "") { return @() }
-        return $json | ConvertFrom-Json
+        $chain = Get-Content $chainPath -Raw | ConvertFrom-Json
+        # Ensure $chain is an array
+        if ($null -eq $chain) { $chain = @() }
+        elseif ($chain -isnot [System.Collections.IEnumerable]) { $chain = @($chain) }
     } catch {
-        Write-Host "⚠️ Error reading blockchain.json: $($_.Exception.Message)"
-        return @()
+        Write-Host "⚠️ Error reading blockchain.json: $_"
+        $chain = @()
     }
+} else {
+    $chain = @()
 }
 
-function Save-Blockchain($chain) {
-    try {
-        ($chain | ConvertTo-Json -Depth 5) | Out-File $BlockchainFile
-    } catch {
-        Write-Host "❌ Failed to save blockchain: $($_.Exception.Message)"
+# Function to add new block
+function Add-Block($tx) {
+    $block = [PSCustomObject]@{
+        height    = ($chain.Count + 1)
+        timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ssZ")
+        from      = $tx.from
+        to        = $tx.to
+        amount    = [double]$tx.amount
+        hash      = (Get-Random -Maximum 100000000).ToString("X")
     }
+
+    # Force $chain to array form, then append block safely
+    if ($chain -isnot [System.Collections.ArrayList]) {
+        $chain = [System.Collections.ArrayList]@($chain)
+    }
+    [void]$chain.Add($block)
+
+    # Save to file
+    $chain | ConvertTo-Json -Depth 5 | Set-Content $chainPath
+    Write-Host "💸 TX: $($tx.from) → $($tx.to) : $($tx.amount) EAGL (Block $($block.height))"
 }
 
-function Add-Block($from, $to, $amount) {
-    $chain = Load-Blockchain
-    $height = if ($chain.Count -eq 0) { 1 } else { $chain[-1].height + 1 }
-    $block = [ordered]@{
-        height    = $height
-        timestamp = (Get-Date).ToString("yyyy-MM-dd HH:mm:ssZ")
-        from      = $from
-        to        = $to
-        amount    = [double]$amount
-        hash      = ([guid]::NewGuid().ToString("N")).Substring(0, 16)
+# Main loop (for receiving tx)
+$listener = [System.Net.HttpListener]::new()
+$listener.Prefixes.Add("http://127.0.0.1:21801/")
+$listener.Start()
+Write-Host "🚀 EAGL Node started on port 21801"
+Write-Host "Press Ctrl+C to stop."
+Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+while ($true) {
+    $ctx = $listener.GetContext()
+    $req = $ctx.Request
+    $res = $ctx.Response
+    if ($req.HttpMethod -eq "POST" -and $req.Url.AbsolutePath -eq "/tx") {
+        $body = New-Object IO.StreamReader($req.InputStream)
+        $json = $body.ReadToEnd() | ConvertFrom-Json
+        Add-Block $json
+        $response = @{ status = "ok" } | ConvertTo-Json
     }
-    $chain += $block
-    Save-Blockchain $chain
-    return $block
-}
-
-function Start-Node {
-    $listener = [System.Net.HttpListener]::new()
-    $prefix = "http://127.0.0.1:$Port/"
-    $listener.Prefixes.Add($prefix)
-    $listener.Start()
-
-    Write-Host "🚀 EAGL Node started on port $Port"
-    Write-Host "Press Ctrl+C to stop."
-    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
-    while ($true) {
-        $ctx = $listener.GetContext()
-        $req = $ctx.Request
-        $res = $ctx.Response
-        $path = $req.Url.AbsolutePath.ToLower()
-        $body = $null
-
-        if ($req.HasEntityBody) {
-            $reader = New-Object System.IO.StreamReader($req.InputStream)
-            $body = $reader.ReadToEnd()
-            if ($body -and $body.Trim() -ne "") {
-                try { $body = $body | ConvertFrom-Json } catch { $body = $null }
-            }
-            $reader.Close()
-        }
-
-        switch ($path) {
-            "/status" {
-                $chain = Load-Blockchain
-                $data = @{
-                    status = "online"
-                    blocks = $chain.Count
-                    port   = $Port
-                }
-                $json = $data | ConvertTo-Json
-            }
-
-            "/chain" {
-                $json = (Load-Blockchain) | ConvertTo-Json -Depth 5
-            }
-
-            "/submit" {
-                if ($null -eq $body) {
-                    $json = @{ error = "Missing body" } | ConvertTo-Json
-                } elseif (-not $body.from -or -not $body.to -or -not $body.amount) {
-                    $json = @{ error = "Missing transaction fields" } | ConvertTo-Json
-                } else {
-                    $block = Add-Block $body.from $body.to $body.amount
-                    Write-Host "💸 TX: $($body.from) → $($body.to) : $($body.amount) EAGL (Block $($block.height))"
-                    $json = @{ result = "accepted"; height = $block.height } | ConvertTo-Json
-                }
-            }
-
-            default {
-                $json = @{ error = "Unknown route" } | ConvertTo-Json
-            }
-        }
-
-        $buffer = [System.Text.Encoding]::UTF8.GetBytes($json)
-        $res.ContentLength64 = $buffer.Length
-        $res.ContentType = "application/json"
-        $res.OutputStream.Write($buffer, 0, $buffer.Length)
-        $res.OutputStream.Close()
+    elseif ($req.Url.AbsolutePath -eq "/chain") {
+        $response = $chain | ConvertTo-Json -Depth 5
     }
+    else {
+        $response = @{ error = "Unknown route" } | ConvertTo-Json
+    }
+    $buffer = [Text.Encoding]::UTF8.GetBytes($response)
+    $res.ContentLength64 = $buffer.Length
+    $res.OutputStream.Write($buffer, 0, $buffer.Length)
+    $res.OutputStream.Close()
 }
-
-Start-Node
