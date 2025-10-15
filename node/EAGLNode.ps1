@@ -40,6 +40,9 @@ function Save-Blockchain([array]$chain) {
 
 function Add-Block($from, $to, $amount) {
     $chain = Load-Blockchain
+    # Ensure $chain is always an array
+    if (-not ($chain -is [System.Collections.IList])) { $chain = @($chain) }
+
     $height = if ($chain.Count -eq 0) { 1 } else { $chain[-1].height + 1 }
     $block = [ordered]@{
         height    = $height
@@ -49,7 +52,8 @@ function Add-Block($from, $to, $amount) {
         amount    = [double]$amount
         hash      = ([guid]::NewGuid().ToString().Replace("-", "")).Substring(0, 16)
     }
-    $chain += ,$block  # <-- Force array append
+
+    $chain += $block  # Now safe
     Save-Blockchain $chain
     return $block
 }
