@@ -26,7 +26,7 @@ function Create-Wallet($name) {
     $wallets = Load-Wallets
     $new = [PSCustomObject]@{
         name    = $name
-        address = (Get-Random -Maximum 10000000000000000)
+        address = (Get-Random -Maximum 100000000000000000)
         balance = 100
     }
     $wallets += ,$new
